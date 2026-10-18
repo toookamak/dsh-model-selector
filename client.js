@@ -56,6 +56,71 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * Keep the configured shortcuts whose models the directory still offers.
+     *
+     * A configured model that is currently unavailable keeps its configuration
+     * but loses its button, and the surviving buttons keep the configured order.
+     *
+     * @param shortcuts - the configured shortcut rows.
+     * @param groups - the directory's provider groups.
+     * @returns one entry per visible shortcut, aliases already resolved.
+     */
+    function visibleShortcuts(shortcuts, groups) {
+      const models = new Map();
+      for (const group of groups ?? []) {
+        for (const model of group.models ?? []) {
+          models.set(modelKey(group.id, model.id), model);
+        }
+      }
+      return (shortcuts ?? []).flatMap((item) => {
+        const key = modelKey(item.provider, item.model);
+        const model = models.get(key);
+        return model ? [{
+          key,
+          provider: item.provider,
+          model: item.model,
+          label: item.alias?.trim() || model.name,
+          modelName: model.name,
+        }] : [];
+      });
+    }
+
+    /**
+     * Find the configured shortcut the current selection is showing.
+     *
+     * Only the provider/model pair decides the match: the reasoning effort is an
+     * independent choice and never makes a shortcut stop being the active one.
+     *
+     * @param shortcuts - the configured shortcut rows.
+     * @param current - the directory's current selection, if any.
+     * @returns the matching configured row, or undefined when none matches.
+     */
+    function activeShortcut(shortcuts, current) {
+      if (current?.provider === undefined || current?.model === undefined) return undefined;
+      return (shortcuts ?? []).find(
+        (item) => item.provider === current.provider && item.model === current.model,
+      );
+    }
+
+    /**
+     * List the reasoning efforts a model advertises, in the directory's order.
+     *
+     * A model that says nothing about reasoning gets no control at all. When the
+     * directory does not name a default effort, the list opens with the provider
+     * default, marked by an empty id so the UI can localize its label.
+     *
+     * @param model - the directory entry of one model.
+     * @returns the options to render, never the caller's own arrays.
+     */
+    function reasoningOptions(model) {
+      const reasoning = model?.reasoning;
+      if (!reasoning || !Array.isArray(reasoning.efforts)) return [];
+      const options = reasoning.efforts.map((effort) => ({ id: effort.id, name: effort.name }));
+      if (reasoning.defaultEffort === undefined) options.unshift({ id: '', name: '' });
+      return options;
+    }
+
+    /**
      * Read the Host-accepted shortcut rows out of a configuration snapshot.
      *
      * @param value - the snapshot's accepted value.
@@ -108,6 +173,16 @@ window.__ModuleLoader__.load({
       'field.provider': 'Provider ID',
       'field.model': 'Model ID',
       'field.alias': '显示名称（可选）',
+      'control.reasoning': '推理等级',
+      'control.modelMenu': '选择模型',
+      'effort.providerDefault': '默认',
+      'menu.search': '搜索模型',
+      'menu.empty': '当前没有可用的模型。',
+      'menu.noResults': '没有匹配的模型。',
+      'menu.loading': '正在加载模型…',
+      'menu.selecting': '正在切换…',
+      'menu.failed': '切换失败：',
+      'menu.close': '关闭',
       'error.array': '配置格式不正确。',
       'error.limit': '最多只能配置三个快捷模型。',
       'error.provider': '请填写 Provider ID。',
@@ -135,6 +210,16 @@ window.__ModuleLoader__.load({
       'field.provider': 'Provider ID',
       'field.model': 'Model ID',
       'field.alias': 'Display name (optional)',
+      'control.reasoning': 'Reasoning effort',
+      'control.modelMenu': 'Choose a model',
+      'effort.providerDefault': 'Default',
+      'menu.search': 'Search models',
+      'menu.empty': 'No models are available.',
+      'menu.noResults': 'No models match.',
+      'menu.loading': 'Loading models…',
+      'menu.selecting': 'Switching…',
+      'menu.failed': 'Could not switch: ',
+      'menu.close': 'Close',
       'error.array': 'The configuration has the wrong shape.',
       'error.limit': 'At most three shortcut models are allowed.',
       'error.provider': 'A provider ID is required.',
@@ -165,6 +250,19 @@ window.__ModuleLoader__.load({
 .modelSelectorButton:disabled{opacity:.5;cursor:default}
 .modelSelectorPrimary{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary)}
 .modelSelectorError{color:var(--dsw-alias-state-error-primary)}
+.modelSelectorControls{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12px}
+.modelSelectorEffort{display:flex;align-items:center;gap:4px;color:var(--dsw-alias-label-secondary)}
+.modelSelectorSelect{font:inherit;font-size:12px;padding:3px 6px;border:1px solid var(--dsw-alias-border-l1);border-radius:6px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}
+.modelSelectorSelect:disabled{opacity:.5}
+.modelSelectorShortcutActive{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary)}
+.modelSelectorMenuWrap{position:relative}
+.modelSelectorMenu{position:absolute;right:0;bottom:calc(100% + 6px);z-index:20;display:flex;flex-direction:column;gap:6px;box-sizing:border-box;width:260px;max-height:320px;overflow:auto;padding:8px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-overlay);box-shadow:0 8px 24px rgba(0,0,0,.18)}
+.modelSelectorMenuHead{display:flex;gap:6px;align-items:center}
+.modelSelectorGroup{display:flex;flex-direction:column;gap:2px}
+.modelSelectorGroupName{margin:2px 0;color:var(--dsw-alias-label-secondary);font-size:11px}
+.modelSelectorItem{font:inherit;font-size:12px;text-align:left;padding:4px 6px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);cursor:pointer}
+.modelSelectorItem:hover{background:var(--dsw-alias-bg-layer-2)}
+.modelSelectorItemActive{color:var(--dsw-alias-brand-primary)}
 `;
 
     /* ------------------------------------------------------------------ *
@@ -300,13 +398,270 @@ window.__ModuleLoader__.load({
     }
 
     /* ------------------------------------------------------------------ *
+     * Composer controls
+     * ------------------------------------------------------------------ */
+
+    /**
+     * Find one model's directory entry by the directory's current selection.
+     *
+     * @param groups - the directory's provider groups.
+     * @param current - the directory's current selection, if any.
+     * @returns the matching model entry, or undefined.
+     */
+    function findModel(groups, current) {
+      if (current === undefined || current === null) return undefined;
+      for (const group of groups ?? []) {
+        if (group.id !== current.provider) continue;
+        for (const model of group.models ?? []) {
+          if (model.id === current.model) return model;
+        }
+      }
+      return undefined;
+    }
+
+    /**
+     * Match one model against the menu's local search text.
+     *
+     * @param model - the directory entry of one model.
+     * @param needle - the lowercased search text, empty for no filter.
+     * @returns whether the model belongs in the filtered menu.
+     */
+    function matchesQuery(model, needle) {
+      if (!needle) return true;
+      return `${model.name ?? ''} ${model.id ?? ''}`.toLowerCase().includes(needle);
+    }
+
+    /**
+     * The reasoning-effort picker, hidden for models without reasoning metadata.
+     *
+     * @param props - the locale reader, the model's options, the effective value,
+     *   whether the directory is busy, and the pick handler.
+     * @returns the picker element, or nothing when the model advertises nothing.
+     */
+    function ReasoningPicker(props) {
+      const { t, options, value, disabled, onChange } = props;
+      if (options.length === 0) return null;
+      return react.createElement('label', { className: 'modelSelectorEffort' },
+        react.createElement('span', { className: 'modelSelectorLabel' }, t('control.reasoning')),
+        react.createElement('select', {
+          className: 'modelSelectorSelect',
+          value: value ?? '',
+          disabled,
+          'aria-label': t('control.reasoning'),
+          onChange: (event) => onChange(event.target.value),
+        }, options.map((option) => react.createElement('option', {
+          key: option.id === '' ? 'provider-default' : option.id,
+          value: option.id,
+        }, option.id === '' ? t('effort.providerDefault') : option.name))),
+      );
+    }
+
+    /**
+     * The full model menu: every provider group the directory advertises, with a
+     * local search box. Every pick goes through the shared directory selection.
+     *
+     * @param props - the locale reader, the groups, the current selection, the
+     *   search text and its setter, the pick handler, and the close handler.
+     * @returns the menu panel.
+     */
+    function ModelMenu(props) {
+      const { t, groups, current, query, onQuery, onPick, onClose } = props;
+      const needle = query.trim().toLowerCase();
+      const sections = [];
+      for (const group of groups) {
+        const models = (group.models ?? []).filter(
+          (model) => matchesQuery(model, needle) || (group.name ?? '').toLowerCase().includes(needle),
+        );
+        if (models.length === 0) continue;
+        sections.push(react.createElement('div', { className: 'modelSelectorGroup', key: group.id },
+          react.createElement('p', { className: 'modelSelectorGroupName' }, group.name),
+          models.map((model) => {
+            const active = group.id === current?.provider && model.id === current?.model;
+            return react.createElement('button', {
+              type: 'button',
+              key: model.id,
+              className: active ? 'modelSelectorItem modelSelectorItemActive' : 'modelSelectorItem',
+              'aria-current': active ? 'true' : undefined,
+              onClick: () => onPick({ provider: group.id, model: model.id }),
+            }, model.name);
+          }),
+        ));
+      }
+      return react.createElement('div', {
+        className: 'modelSelectorMenu',
+        role: 'dialog',
+        'aria-label': t('control.modelMenu'),
+      },
+      react.createElement('div', { className: 'modelSelectorMenuHead' },
+        react.createElement('input', {
+          className: 'modelSelectorInput',
+          type: 'search',
+          value: query,
+          placeholder: t('menu.search'),
+          'aria-label': t('menu.search'),
+          autoFocus: true,
+          onChange: (event) => onQuery(event.target.value),
+        }),
+        react.createElement('button', { type: 'button', className: 'modelSelectorButton', onClick: onClose }, t('menu.close')),
+      ),
+      sections.length > 0
+        ? sections
+        : react.createElement('p', { className: 'modelSelectorEmpty' }, needle ? t('menu.noResults') : t('menu.empty')),
+      );
+    }
+
+    /**
+     * The composer row: reasoning effort, the configured shortcuts, the menu.
+     *
+     * Everything rendered here is read back from the shared directory store, so a
+     * rejected switch shows the failure instead of a selection that never landed.
+     *
+     * @param props - the locale reader, the directory store and its operations,
+     *   and the shortcut configuration form.
+     * @returns the control row.
+     */
+    function ControlRow(props) {
+      const { t, directory, load, select, settingsForm } = props;
+      const subscribe = react.useCallback((notify) => directory.subscribe(notify), [directory]);
+      const getSnapshot = react.useCallback(() => directory.getSnapshot(), [directory]);
+      const state = react.useSyncExternalStore(subscribe, getSnapshot);
+      const formSubscribe = react.useCallback((notify) => settingsForm.subscribe(notify), [settingsForm]);
+      const getFormSnapshot = react.useCallback(() => settingsForm.getSnapshot(), [settingsForm]);
+      const formSnapshot = react.useSyncExternalStore(formSubscribe, getFormSnapshot);
+      const [open, setOpen] = react.useState(false);
+      const [query, setQuery] = react.useState('');
+      const [failure, setFailure] = react.useState(undefined);
+
+      // Load the shared catalog once per mount, through the latest operation.
+      const loadRef = react.useRef(load);
+      loadRef.current = load;
+      react.useEffect(() => {
+        loadRef.current();
+      }, []);
+      react.useEffect(() => {
+        if (!open) return undefined;
+        const onKeyDown = (event) => {
+          if (event.key !== 'Escape') return;
+          setOpen(false);
+          setQuery('');
+        };
+        document.addEventListener('keydown', onKeyDown);
+        return () => document.removeEventListener('keydown', onKeyDown);
+      }, [open]);
+
+      const shortcuts = Array.isArray(formSnapshot.value?.shortcuts) ? formSnapshot.value.shortcuts : [];
+      const groups = Array.isArray(state.groups) ? state.groups : [];
+      const currentModel = findModel(groups, state.current);
+      const options = reasoningOptions(currentModel);
+      const effort = state.current?.reasoningEffort ?? currentModel?.reasoning?.defaultEffort;
+      const busy = state.status === 'selecting';
+      const loading = state.status === 'loading' || (state.status === 'idle' && groups.length === 0);
+      const active = activeShortcut(shortcuts, state.current);
+      const activeKey = active === undefined ? undefined : modelKey(active.provider, active.model);
+      const visible = visibleShortcuts(shortcuts, groups).slice(0, MAX_SHORTCUTS);
+      const currentName = currentModel?.name ?? state.current?.model ?? '';
+      const notice = failure ?? (state.status === 'error' ? state.error : undefined);
+
+      const change = async (selection) => {
+        setFailure(undefined);
+        let result;
+        try {
+          result = await select(selection);
+        } catch (error) {
+          result = { ok: false, error: { code: 'selection-failed', message: String(error?.message ?? error) } };
+        }
+        if (result !== undefined && result !== null && result.ok === false) {
+          setFailure(`${t('menu.failed')}${result.error?.message ?? ''}`);
+          return false;
+        }
+        return true;
+      };
+      const pick = async (selection) => {
+        setOpen(false);
+        setQuery('');
+        if (selection.provider === state.current?.provider && selection.model === state.current?.model) return;
+        await change(selection);
+      };
+
+      return react.createElement('div', { className: 'modelSelectorControls' },
+        react.createElement(ReasoningPicker, {
+          t,
+          options,
+          value: effort,
+          disabled: busy,
+          onChange: (id) => change({
+            provider: state.current.provider,
+            model: state.current.model,
+            ...(id === '' ? {} : { reasoningEffort: id }),
+          }),
+        }),
+        visible.map((item) => react.createElement('button', {
+          type: 'button',
+          key: item.key,
+          className: item.key === activeKey ? 'modelSelectorButton modelSelectorShortcutActive' : 'modelSelectorButton',
+          disabled: busy,
+          title: item.modelName,
+          onClick: () => change({ provider: item.provider, model: item.model }),
+        }, item.label)),
+        react.createElement('div', { className: 'modelSelectorMenuWrap' },
+          react.createElement('button', {
+            type: 'button',
+            className: 'modelSelectorButton',
+            disabled: busy,
+            'aria-haspopup': 'dialog',
+            'aria-expanded': open ? 'true' : 'false',
+            onClick: () => {
+              setOpen((was) => !was);
+              setQuery('');
+            },
+          }, currentName || t('control.modelMenu')),
+          open ? react.createElement(ModelMenu, {
+            t,
+            groups,
+            current: state.current,
+            query,
+            onQuery: setQuery,
+            onPick: pick,
+            onClose: () => {
+              setOpen(false);
+              setQuery('');
+            },
+          }) : null,
+        ),
+        loading ? react.createElement('p', { className: 'modelSelectorNotice', role: 'status' }, t('menu.loading')) : null,
+        busy ? react.createElement('p', { className: 'modelSelectorNotice', role: 'status' }, t('menu.selecting')) : null,
+        notice === undefined || notice === null || notice === ''
+          ? null
+          : react.createElement('p', { className: 'modelSelectorNotice modelSelectorError', role: 'status' }, notice),
+      );
+    }
+
+    /**
+     * The empty stand-in that takes over the shipped model seat.
+     *
+     * This plugin's composer row owns the model menu now, so the seat inside the
+     * composer renders nothing. A single slot renders the lowest priority, and
+     * the shipped `ModelSelect` registers without one (priority 0), so this empty
+     * registration sits far below it. Evidence from the live slot tree on this
+     * machine: the occupants of `conversation.input.model` were `-10` (active)
+     * and `0` (inactive), which is why a lower value wins. Verify after install
+     * that this registration is the active one; if that tree ever reports the
+     * opposite, raise this value above the shipped registration instead.
+     *
+     * @returns nothing at all.
+     */
+    function ModelSelectShadow() {
+      return null;
+    }
+
+    /* ------------------------------------------------------------------ *
      * Plugin entry
      * ------------------------------------------------------------------ */
 
-    const inject = ['slots', 'locale', 'configForms'];
+    const inject = ['slots', 'locale', 'configForms', 'modelDirectories'];
 
     /**
-     * Mount the settings page while the Host serves this bundle's namespace.
+     * Mount the settings page and the composer controls.
      *
      * @param ctx - the browser plugin context.
      */
@@ -320,8 +675,11 @@ window.__ModuleLoader__.load({
         document.head.append(tag);
         return () => tag.remove();
       }, 'model-selector: style');
-      ctx.inject(['slots', 'configForms'], (scope) => {
+      ctx.inject(['slots', 'configForms', 'modelDirectories'], (scope) => {
         const form = scope.configForms.get(CONFIG_NAMESPACE);
+        const directories = scope.modelDirectories;
+
+        // The settings page exists only while the Host serves the namespace.
         scope.effect(() => scope.configForms.whileServed([CONFIG_NAMESPACE], () => scope.slots.inject('plugins.item', () => scope.slots.register({
           name: 'plugins.item',
           id: CONFIG_NAMESPACE,
@@ -330,12 +688,49 @@ window.__ModuleLoader__.load({
           locale: NS,
           inject: () => ({ settingsForm: form }),
         }, SettingsPage))), 'model-selector: settings page');
+
+        // The composer row, bound to one session's shared model directory.
+        scope.effect(() => scope.slots.inject('conversation.composer.dock', () => scope.slots.register({
+          name: 'conversation.composer.dock',
+          id: 'model-selector-controls',
+          order: 5,
+          locale: NS,
+          inject: (sessionId) => {
+            const directory = directories.directoryFor(sessionId);
+            return {
+              t,
+              directory: directory.store,
+              load: () => {
+                directory.load().catch(() => {});
+              },
+              select: (selection) => directory.select(selection),
+              settingsForm: form,
+            };
+          },
+        }, ControlRow)), 'model-selector: composer controls');
+
+        // Take over the shipped seat, so the model menu exists exactly once.
+        scope.effect(() => scope.slots.inject('conversation.input.model', () => scope.slots.register({
+          name: 'conversation.input.model',
+          priority: -1000,
+          locale: NS,
+        }, ModelSelectShadow)), 'model-selector: empty model seat');
       });
     }
 
     exports.apply = apply;
     exports.inject = inject;
-    exports.__internals = { modelKey, validateShortcuts, persistShortcuts, shortcutRows, zh, en };
+    exports.__internals = {
+      modelKey,
+      validateShortcuts,
+      persistShortcuts,
+      visibleShortcuts,
+      activeShortcut,
+      reasoningOptions,
+      shortcutRows,
+      zh,
+      en,
+    };
     return module.exports;
   },
 });

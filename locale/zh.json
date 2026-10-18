@@ -21,6 +21,22 @@
     "model": "Model ID",
     "alias": "显示名称（可选）"
   },
+  "control": {
+    "reasoning": "推理等级",
+    "modelMenu": "选择模型"
+  },
+  "effort": {
+    "providerDefault": "默认"
+  },
+  "menu": {
+    "search": "搜索模型",
+    "empty": "当前没有可用的模型。",
+    "noResults": "没有匹配的模型。",
+    "loading": "正在加载模型…",
+    "selecting": "正在切换…",
+    "failed": "切换失败：",
+    "close": "关闭"
+  },
   "error": {
     "array": "配置格式不正确。",
     "limit": "最多只能配置三个快捷模型。",

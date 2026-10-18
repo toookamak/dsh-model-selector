@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { modelKey, persistShortcuts, validateShortcuts, visibleShortcuts } from '../shortcut-config.js';
+import {
+  activeShortcut, modelKey, persistShortcuts, reasoningOptions, validateShortcuts, visibleShortcuts,
+} from '../shortcut-config.js';
 
 const groups = [{
   id: 'provider-a',
@@ -96,4 +98,37 @@ test('reports a host rejection and leaves the draft untouched for editing', asyn
   assert.match(result.error, /rejected/i);
   assert.deepEqual(draft, [{ provider: 'p', model: 'm', alias: 'Mine' }]);
   assert.equal(form.calls.length, 1);
+});
+
+test('matches the configured shortcut of the current selection', () => {
+  const shortcuts = [
+    { provider: 'provider-a', model: 'model-1', alias: 'One' },
+    { provider: 'provider-a', model: 'model-2', alias: 'Two' },
+  ];
+  assert.equal(activeShortcut(shortcuts, { provider: 'provider-a', model: 'model-2' }), shortcuts[1]);
+  assert.equal(activeShortcut(shortcuts, { provider: 'provider-a', model: 'model-2', reasoningEffort: 'low' }), shortcuts[1]);
+  assert.equal(activeShortcut(shortcuts, { provider: 'provider-b', model: 'model-2' }), undefined);
+  assert.equal(activeShortcut(shortcuts, { provider: 'provider-a', model: 'missing' }), undefined);
+  assert.equal(activeShortcut(shortcuts, undefined), undefined);
+  assert.equal(activeShortcut(shortcuts, {}), undefined);
+});
+
+test('lists the reasoning options a model actually supports', () => {
+  assert.deepEqual(reasoningOptions(undefined), []);
+  assert.deepEqual(reasoningOptions({ id: 'model-2', name: 'Model Two' }), []);
+  assert.deepEqual(
+    reasoningOptions({ reasoning: { defaultEffort: 'medium', efforts: [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }] } }),
+    [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }],
+  );
+  assert.deepEqual(
+    reasoningOptions({ reasoning: { efforts: [{ id: 'low', name: 'Low' }] } }),
+    [{ id: '', name: '' }, { id: 'low', name: 'Low' }],
+  );
+});
+
+test('leaves the model metadata it reads untouched', () => {
+  const model = { reasoning: { efforts: [{ id: 'low', name: 'Low' }] } };
+  const before = structuredClone(model);
+  reasoningOptions(model);
+  assert.deepEqual(model, before);
 });

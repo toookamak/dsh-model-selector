@@ -39,6 +39,41 @@ export function visibleShortcuts(shortcuts, groups) {
 }
 
 /**
+ * Find the configured shortcut that the current selection is showing.
+ *
+ * Only the provider/model pair decides the match: the reasoning effort is an
+ * independent choice and never makes a shortcut stop being the active one.
+ *
+ * @param shortcuts - the configured shortcut rows.
+ * @param current - the directory's current selection, if any.
+ * @returns the matching configured row, or undefined when none matches.
+ */
+export function activeShortcut(shortcuts, current) {
+  if (current?.provider === undefined || current?.model === undefined) return undefined;
+  return (shortcuts ?? []).find(
+    (item) => item.provider === current.provider && item.model === current.model,
+  );
+}
+
+/**
+ * List the reasoning efforts a model advertises, in the directory's own order.
+ *
+ * A model that says nothing about reasoning gets no control at all. When the
+ * directory does not name a default effort, the list opens with the provider
+ * default, marked by an empty id so the UI can localize its label.
+ *
+ * @param model - the directory entry of one model.
+ * @returns the options to render, never the caller's own arrays.
+ */
+export function reasoningOptions(model) {
+  const reasoning = model?.reasoning;
+  if (!reasoning || !Array.isArray(reasoning.efforts)) return [];
+  const options = reasoning.efforts.map((effort) => ({ id: effort.id, name: effort.name }));
+  if (reasoning.defaultEffort === undefined) options.unshift({ id: '', name: '' });
+  return options;
+}
+
+/**
  * Save one shortcut draft through the Host-backed configuration form.
  *
  * The draft is validated with the same rules the settings page enforces, and it

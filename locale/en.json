@@ -21,6 +21,22 @@
     "model": "Model ID",
     "alias": "Display name (optional)"
   },
+  "control": {
+    "reasoning": "Reasoning effort",
+    "modelMenu": "Choose a model"
+  },
+  "effort": {
+    "providerDefault": "Default"
+  },
+  "menu": {
+    "search": "Search models",
+    "empty": "No models are available.",
+    "noResults": "No models match.",
+    "loading": "Loading models…",
+    "selecting": "Switching…",
+    "failed": "Could not switch: ",
+    "close": "Close"
+  },
   "error": {
     "array": "The configuration has the wrong shape.",
     "limit": "At most three shortcut models are allowed.",
