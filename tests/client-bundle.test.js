@@ -119,6 +119,68 @@ test('mirrors the save flow and its canonical failures', async () => {
   }
 });
 
+test('registers its settings form in the seats the Plugins page renders', () => {
+  const bundle = loadBundle();
+  const registered = [];
+  const fakeForm = {
+    writable: true,
+    subscribe: () => () => {},
+    getSnapshot: () => ({ revision: 0 }),
+    set: async () => true,
+  };
+  const ctx = {
+    locale: { bind: () => (key) => key, register: () => () => {} },
+    effect: (run) => {
+      const stop = run();
+      return typeof stop === 'function' ? stop : () => {};
+    },
+    inject: (names, run) => {
+      run(Object.assign({
+        slots: ctx.slots, configForms: ctx.configForms, modelDirectories: ctx.modelDirectories, effect: ctx.effect,
+      }));
+      return () => {};
+    },
+    slots: {
+      register: (spec, component) => {
+        registered.push({ spec, component });
+        return () => {};
+      },
+      inject: (name, run) => {
+        run();
+        return () => {};
+      },
+    },
+    configForms: { get: () => fakeForm },
+    modelDirectories: {
+      directoryFor: () => ({ store: {}, load: async () => {}, select: async () => ({ ok: true }) }),
+    },
+  };
+  const documentStub = {
+    createElement: () => ({ dataset: {}, remove: () => {} }),
+    head: { append: () => {} },
+  };
+  const original = globalThis.document;
+  globalThis.document = documentStub;
+  try {
+    bundle.apply(ctx);
+  } finally {
+    if (original === undefined) delete globalThis.document;
+    else globalThis.document = original;
+  }
+  assert.deepEqual(
+    registered.map((entry) => `${entry.spec.name}\t${entry.spec.key ?? entry.spec.id ?? ''}`),
+    [
+      'plugins.row.config\t@local/dsh-model-selector#model-selector',
+      'plugins.bundle.config\t@local/dsh-model-selector',
+      'conversation.composer.dock\tmodel-selector-controls',
+      'conversation.input.model\t',
+    ],
+  );
+  // `plugins.item` lists official Host-plane plugins only, so a profile bundle
+  // must never claim it: nothing would render there.
+  assert.ok(!registered.some((entry) => entry.spec.name === 'plugins.item'));
+});
+
 test('keeps both locale files and the bundle dictionaries in step', () => {
   const internals = loadBundle().__internals;
   for (const language of ['en', 'zh']) {

@@ -679,15 +679,23 @@ window.__ModuleLoader__.load({
         const form = scope.configForms.get(CONFIG_NAMESPACE);
         const directories = scope.modelDirectories;
 
-        // The settings page exists only while the Host serves the namespace.
-        scope.effect(() => scope.configForms.whileServed([CONFIG_NAMESPACE], () => scope.slots.inject('plugins.item', () => scope.slots.register({
-          name: 'plugins.item',
-          id: CONFIG_NAMESPACE,
-          order: 50,
-          label: () => t('settings.title'),
+        // `plugins.item` only lists the official Host-plane plugins, so a profile
+        // bundle's own settings belong in the two bundle seats instead: the row's
+        // page (keyed by `<package name>#<row id>`), which is what puts a
+        // Configure control on the row, and the bundle page itself, keyed by the
+        // package name and rendered between its description and its rows.
+        scope.effect(() => scope.slots.inject('plugins.row.config', () => scope.slots.register({
+          name: 'plugins.row.config',
+          key: `${PLUGIN_ID}#${CONFIG_NAMESPACE}`,
           locale: NS,
           inject: () => ({ settingsForm: form }),
-        }, SettingsPage))), 'model-selector: settings page');
+        }, SettingsPage)), 'model-selector: row configuration page');
+        scope.effect(() => scope.slots.inject('plugins.bundle.config', () => scope.slots.register({
+          name: 'plugins.bundle.config',
+          key: PLUGIN_ID,
+          locale: NS,
+          inject: () => ({ settingsForm: form }),
+        }, SettingsPage)), 'model-selector: bundle configuration page');
 
         // The composer row, bound to one session's shared model directory.
         scope.effect(() => scope.slots.inject('conversation.composer.dock', () => scope.slots.register({
