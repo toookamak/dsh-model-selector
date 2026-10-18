@@ -13,6 +13,29 @@ window.__ModuleLoader__.load({
     var exports = module.exports;
 
     const react = require('react');
+    // `react-dom` is a platform module as well; the model menu portals through it.
+    const reactDom = require('react-dom');
+    // The platform seed module (`PLATFORM_MODULES` in the shell) is available to
+    // every dynamic bundle, so this plugin reuses the native controls and the
+    // native menu material instead of repainting them: a dropdown or selection
+    // menu uses `Menu`, or wraps custom content in `MenuSurface`
+    // (see the harness style reference, docs/web-styling.md).
+    const primitives = require('@deepseek-ai/dsh-client-ui-primitives');
+    const Menu = primitives.Menu;
+    const MenuSurface = primitives.MenuSurface;
+    const MenuGroup = primitives.MenuGroup;
+    const Button = primitives.Button;
+    const Input = primitives.Input;
+    const useDismissOnOutsidePointer = primitives.useDismissOnOutsidePointer;
+    const IconCheckOutlineRegular = primitives.IconCheckOutlineRegular;
+    const IconChevronDownOutlineRegular = primitives.IconChevronDownOutlineRegular;
+    const IconCloseFillRegular = primitives.IconCloseFillRegular;
+
+    /**
+     * Placement of a portaled menu before its first measurement: invisible at the
+     * origin, so it never flashes where it is about to move away from.
+     */
+    const MEASURE_STYLE = { visibility: 'hidden', left: 0, top: 0 };
 
     /** Dictionary namespace this plugin owns. */
     const NS = 'modelSelector';
@@ -262,12 +285,12 @@ window.__ModuleLoader__.load({
       'control.modelMenu': '选择模型',
       'effort.providerDefault': '默认',
       'menu.search': '搜索模型',
+      'menu.clear': '清除搜索',
       'menu.empty': '当前没有可用的模型。',
       'menu.noResults': '没有匹配的模型。',
       'menu.loading': '正在加载模型…',
       'menu.selecting': '正在切换…',
       'menu.failed': '切换失败：',
-      'menu.close': '关闭',
       'error.array': '配置格式不正确。',
       'error.limit': '最多只能配置三个快捷模型。',
       'error.provider': '请选择服务商。',
@@ -306,12 +329,12 @@ window.__ModuleLoader__.load({
       'control.modelMenu': 'Choose a model',
       'effort.providerDefault': 'Default',
       'menu.search': 'Search models',
+      'menu.clear': 'Clear the search',
       'menu.empty': 'No models are available.',
       'menu.noResults': 'No models match.',
       'menu.loading': 'Loading models…',
       'menu.selecting': 'Switching…',
       'menu.failed': 'Could not switch: ',
-      'menu.close': 'Close',
       'error.array': 'The configuration has the wrong shape.',
       'error.limit': 'At most three shortcut models are allowed.',
       'error.provider': 'A provider ID is required.',
@@ -329,35 +352,45 @@ window.__ModuleLoader__.load({
 .modelSelectorSection{display:flex;flex-direction:column;gap:12px;max-width:760px;color:var(--dsw-alias-label-primary)}
 .modelSelectorHeading{margin:0;font-size:15px;font-weight:600;line-height:22px}
 .modelSelectorPage{display:flex;flex-direction:column;gap:12px;max-width:760px;color:var(--dsw-alias-label-primary);font-size:13px;line-height:20px}
-.modelSelectorIntro,.modelSelectorEmpty,.modelSelectorNotice{margin:0}
+.modelSelectorIntro,.modelSelectorEmpty,.modelSelectorNotice,.modelSelectorError{margin:0}
 .modelSelectorIntro{color:var(--dsw-alias-label-secondary)}
 .modelSelectorEmpty{color:var(--dsw-alias-label-tertiary)}
-.modelSelectorRow{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;padding:10px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-layer-2)}
-.modelSelectorField{display:flex;flex:1 1 150px;flex-direction:column;gap:4px;min-width:150px}
-.modelSelectorWide{flex:1 1 220px;min-width:220px}
-.modelSelectorLabel{color:var(--dsw-alias-label-secondary);font-size:12px}
-.modelSelectorInput{box-sizing:border-box;width:100%;padding:5px 8px;border:1px solid var(--dsw-alias-border-l1);border-radius:6px;background:transparent;color:inherit;font:inherit}
-.modelSelectorInput:focus{outline:none;border-color:var(--dsw-alias-brand-primary)}
-.modelSelectorInput:disabled{opacity:.6}
-.modelSelectorActions{display:flex;flex-wrap:wrap;gap:8px}
-.modelSelectorButton{font:inherit;padding:5px 12px;border:1px solid var(--dsw-alias-border-l1);border-radius:6px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);cursor:pointer}
-.modelSelectorButton:hover:not(:disabled){border-color:var(--dsw-alias-brand-primary)}
-.modelSelectorButton:disabled{opacity:.5;cursor:default}
-.modelSelectorPrimary{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary)}
 .modelSelectorError{color:var(--dsw-alias-state-error-primary)}
-.modelSelectorControls{display:flex;flex-wrap:wrap;gap:6px;align-items:center;min-width:0;font-size:12px}
-.modelSelectorEffort{display:flex;align-items:center;gap:4px;color:var(--dsw-alias-label-secondary)}
-.modelSelectorSelect{font:inherit;font-size:12px;padding:3px 6px;border:1px solid var(--dsw-alias-border-l1);border-radius:6px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}
-.modelSelectorSelect:disabled{opacity:.5}
-.modelSelectorShortcutActive{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary)}
+.modelSelectorRow{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;padding:12px;border:.5px solid var(--dsw-alias-settings-card-stroke);border-radius:var(--dsw-radius-xl);background:var(--dsw-alias-settings-card-fill)}
+.modelSelectorField{display:flex;flex:1 1 150px;flex-direction:column;gap:6px;min-width:150px}
+.modelSelectorWide{flex:1 1 220px;min-width:220px}
+.modelSelectorLabel{color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}
+.modelSelectorInput{width:100%}
+.modelSelectorPickerWrap{display:block;width:100%}
+.modelSelectorPicker{display:flex;box-sizing:border-box;align-items:center;gap:12px;width:100%;height:36px;padding:0 14px;border:none;border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-module-platform);color:var(--dsw-alias-label-primary);font:inherit;font-size:14px;line-height:22px;text-align:left;cursor:pointer}
+.modelSelectorPicker:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}
+.modelSelectorPicker:focus-visible{outline:none;box-shadow:0 0 0 2px var(--dsw-alias-state-business-primary)}
+.modelSelectorPicker:disabled{color:var(--dsw-alias-label-dimmed);cursor:default}
+.modelSelectorPickerLabel{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.modelSelectorActions{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.modelSelectorControls{display:flex;flex-wrap:wrap;align-items:center;gap:2px;min-width:0}
+.modelSelectorChip{display:flex;align-items:center;gap:4px;min-width:0;max-width:220px;max-width:min(360px,45cqw);height:28px;padding:0 8px;border:0;border-radius:var(--dsw-radius-sm);outline:none;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;line-height:20px;font-weight:400;cursor:pointer}
+.modelSelectorChip:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}
+.modelSelectorChip:focus-visible{box-shadow:0 0 0 2px var(--dsw-alias-state-business-primary)}
+.modelSelectorChip:disabled{color:var(--dsw-alias-label-dimmed);cursor:default}
+.modelSelectorChipActive{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.modelSelectorChipLabel{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.modelSelectorChipCaption{flex-shrink:1000;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-caption)}
+.modelSelectorChevron{flex:0 0 auto;color:var(--dsw-alias-label-caption);transition:transform 120ms ease}
+.modelSelectorChevronOpen{transform:rotate(180deg)}
 .modelSelectorMenuWrap{position:relative}
-.modelSelectorMenu{position:absolute;right:0;bottom:calc(100% + 6px);z-index:20;display:flex;flex-direction:column;gap:6px;box-sizing:border-box;width:260px;max-height:320px;overflow:auto;padding:8px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-overlay);box-shadow:0 8px 24px rgba(0,0,0,.18)}
-.modelSelectorMenuHead{display:flex;gap:6px;align-items:center}
-.modelSelectorGroup{display:flex;flex-direction:column;gap:2px}
-.modelSelectorGroupName{margin:2px 0;color:var(--dsw-alias-label-secondary);font-size:11px}
-.modelSelectorItem{font:inherit;font-size:12px;text-align:left;padding:4px 6px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);cursor:pointer}
-.modelSelectorItem:hover{background:var(--dsw-alias-bg-layer-2)}
-.modelSelectorItemActive{color:var(--dsw-alias-brand-primary)}
+.modelSelectorMenu{position:fixed;z-index:1100;box-sizing:border-box;display:flex;flex-direction:column;width:max-content;min-width:min(240px,calc(100vw - 32px));max-width:min(420px,calc(100vw - 32px));max-height:min(360px,calc(100vh - 96px));overflow:hidden;padding:4px;border:0;--dsw-elevation-stroke-color:var(--dsw-alias-border-l1);box-shadow:var(--dsw-elevation-prominent);color:var(--dsw-alias-label-primary);--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2)}
+.modelSelectorSearchRow{position:relative;flex:none;margin:2px 0 3px}
+.modelSelectorSearch{display:flex;height:auto;padding:5px 7px;border:0 solid transparent;border-radius:var(--dsw-radius-md);background:transparent}
+.modelSelectorSearchWithQuery{padding-right:34px}
+.modelSelectorSearchClear{position:absolute;top:50%;right:4px;transform:translateY(-50%);display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0;border:none;border-radius:50%;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer}
+.modelSelectorSearchClear:hover,.modelSelectorSearchClear:focus-visible{outline:none;background:var(--dsw-alias-interactive-bg-hover)}
+.modelSelectorGroups{display:flex;flex:1 1 auto;flex-direction:column;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+.modelSelectorOption{box-sizing:border-box;display:flex;align-items:center;gap:6px;width:auto;min-width:100%;min-height:34px;padding:5px 7px;border:none;border-radius:var(--dsw-radius-md);outline:none;background:transparent;color:inherit;font:inherit;font-size:13px;line-height:18px;text-align:left;cursor:pointer}
+.modelSelectorOption:hover,.modelSelectorOption:focus-visible{background:var(--dsw-alias-interactive-bg-hover)}
+.modelSelectorOptionName{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.modelSelectorCheck{display:grid;place-items:center;flex:0 0 14px;color:var(--dsw-alias-label-primary)}
+.modelSelectorCheck svg{width:14px;height:14px}
 `;
 
     /* ------------------------------------------------------------------ *
@@ -377,40 +410,57 @@ window.__ModuleLoader__.load({
     function field(t, labelKey, value, disabled, onChange) {
       return react.createElement('label', { className: 'modelSelectorField', key: labelKey },
         react.createElement('span', { className: 'modelSelectorLabel' }, t(labelKey)),
-        react.createElement('input', {
+        react.createElement(Input, {
           className: 'modelSelectorInput',
-          type: 'text',
           value,
           disabled,
+          'aria-label': t(labelKey),
           onChange: (event) => onChange(event.target.value),
         }),
       );
     }
 
     /**
-     * One labelled dropdown of the settings form.
+     * One labelled dropdown of the settings form, painted by the native menu
+     * material so its colours, radius, and shadow match every other picker.
      *
-     * @param t - the page's locale reader.
-     * @param labelKey - dictionary key of the field label.
-     * @param value - the selected option value.
-     * @param disabled - whether the field accepts input.
-     * @param options - the selectable options, in render order.
-     * @param onChange - receives the picked value.
+     * @param props - the locale reader, the field label key, the selected value,
+     *   whether the field accepts input, the selectable options, and the pick
+     *   callback. Each option is `{ value, label }`.
      * @returns the field element.
      */
-    function selectField(t, labelKey, value, disabled, options, onChange) {
-      return react.createElement('label', { className: 'modelSelectorField modelSelectorWide', key: labelKey },
+    function SelectField(props) {
+      const { t, labelKey, value, disabled, options, onChange } = props;
+      const [open, setOpen] = react.useState(false);
+      const current = options.find((option) => option.value === value);
+      return react.createElement('div', { className: 'modelSelectorField modelSelectorWide', key: labelKey },
         react.createElement('span', { className: 'modelSelectorLabel' }, t(labelKey)),
-        react.createElement('select', {
-          className: 'modelSelectorInput',
-          value,
-          disabled,
-          'aria-label': t(labelKey),
-          onChange: (event) => onChange(event.target.value),
-        }, options.map((option) => react.createElement('option', {
-          key: option.value === '' ? 'empty' : option.value,
-          value: option.value,
-        }, option.label))),
+        react.createElement(Menu, {
+          open: open && !disabled,
+          side: 'bottom',
+          align: 'start',
+          // The settings column scrolls, so the list lives in the body instead.
+          portal: true,
+          className: 'modelSelectorPickerWrap',
+          items: options.map((option) => ({ id: option.value, label: option.label })),
+          selectedId: value,
+          onSelect: (id) => { setOpen(false); onChange(id); },
+          onClose: () => setOpen(false),
+          anchor: react.createElement('button', {
+            type: 'button',
+            className: 'modelSelectorPicker',
+            disabled,
+            'aria-label': t(labelKey),
+            'aria-haspopup': 'menu',
+            'aria-expanded': open ? 'true' : 'false',
+            onClick: () => setOpen((was) => !was),
+          },
+            react.createElement('span', { className: 'modelSelectorPickerLabel' }, current === undefined ? '' : current.label),
+            react.createElement(IconChevronDownOutlineRegular, {
+              className: open ? 'modelSelectorChevron modelSelectorChevronOpen' : 'modelSelectorChevron',
+            }),
+          ),
+        }),
       );
     }
 
@@ -500,12 +550,28 @@ window.__ModuleLoader__.load({
           })),
         );
         return react.createElement('div', { className: 'modelSelectorRow', key: `row-${index}` },
-          selectField(t, 'field.provider', noProvider ? '' : choice.provider, !writable, providerOptions, (value) => pickProvider(index, value)),
-          selectField(t, 'field.model', known ? row.model : '', !writable || noProvider, modelOptions, (value) => update(index, 'model', value)),
+          react.createElement(SelectField, {
+            key: 'field.provider',
+            t,
+            labelKey: 'field.provider',
+            value: noProvider ? '' : choice.provider,
+            disabled: !writable,
+            options: providerOptions,
+            onChange: (value) => pickProvider(index, value),
+          }),
+          react.createElement(SelectField, {
+            key: 'field.model',
+            t,
+            labelKey: 'field.model',
+            value: known ? row.model : '',
+            disabled: !writable || noProvider,
+            options: modelOptions,
+            onChange: (value) => update(index, 'model', value),
+          }),
           field(t, 'field.alias', row.alias, !writable, (value) => update(index, 'alias', value)),
-          react.createElement('button', {
-            type: 'button',
-            className: 'modelSelectorButton',
+          react.createElement(Button, {
+            variant: 'ghost',
+            size: 'md',
             disabled: !writable,
             onClick: () => removeRow(index),
           }, t('settings.remove')),
@@ -517,21 +583,21 @@ window.__ModuleLoader__.load({
         catalogNotice(t, catalog),
         rows.length > 0 ? rows : react.createElement('p', { className: 'modelSelectorEmpty' }, t('settings.empty')),
         react.createElement('div', { className: 'modelSelectorActions' },
-          react.createElement('button', {
-            type: 'button',
-            className: 'modelSelectorButton',
+          react.createElement(Button, {
+            variant: 'ghost',
+            size: 'md',
             disabled: !writable || draft.length >= MAX_SHORTCUTS,
             onClick: addRow,
           }, t('settings.add')),
-          react.createElement('button', {
-            type: 'button',
-            className: 'modelSelectorButton modelSelectorPrimary',
+          react.createElement(Button, {
+            variant: 'primary',
+            size: 'md',
             disabled: !writable || busy,
             onClick: save,
           }, busy ? t('settings.saving') : t('settings.save')),
-          react.createElement('button', {
-            type: 'button',
-            className: 'modelSelectorButton',
+          react.createElement(Button, {
+            variant: 'ghost',
+            size: 'md',
             disabled: busy,
             onClick: discard,
           }, t('settings.discard')),
@@ -612,8 +678,11 @@ window.__ModuleLoader__.load({
         return react.createElement('div', { className: 'modelSelectorActions' },
           react.createElement('p', { className: 'modelSelectorNotice modelSelectorError', role: 'alert' },
             `${t('settings.catalogFailed')}${catalog.error ?? ''}`),
-          react.createElement('button', { type: 'button', className: 'modelSelectorButton', onClick: catalog.reload },
-            t('settings.catalogRetry')),
+          react.createElement(Button, {
+            variant: 'ghost',
+            size: 'md',
+            onClick: catalog.reload,
+          }, t('settings.catalogRetry')),
         );
       }
       if (catalog.status === 'loading' && catalog.groups.length === 0) {
@@ -700,80 +769,141 @@ window.__ModuleLoader__.load({
     /**
      * The reasoning-effort picker, hidden for models without reasoning metadata.
      *
+     * The trigger copies the native model trigger's metrics, and the list is the
+     * native menu, so it inherits the shell's own colours and dismissal.
+     *
      * @param props - the locale reader, the model's options, the effective value,
      *   whether the directory is busy, and the pick handler.
      * @returns the picker element, or nothing when the model advertises nothing.
      */
     function ReasoningPicker(props) {
       const { t, options, value, disabled, onChange } = props;
+      const [open, setOpen] = react.useState(false);
       if (options.length === 0) return null;
-      return react.createElement('label', { className: 'modelSelectorEffort' },
-        react.createElement('span', { className: 'modelSelectorLabel' }, t('control.reasoning')),
-        react.createElement('select', {
-          className: 'modelSelectorSelect',
-          value: value ?? '',
+      const current = options.find((option) => option.id === (value ?? ''));
+      const label = current === undefined || current.id === ''
+        ? t('effort.providerDefault')
+        : current.name;
+      return react.createElement(Menu, {
+        open: open && !disabled,
+        side: 'top',
+        align: 'end',
+        // Portaled for the same reason the model menu is: the composer sits in a
+        // scrolling box that would otherwise crop the list.
+        portal: true,
+        items: options.map((option) => ({
+          id: option.id,
+          label: option.id === '' ? t('effort.providerDefault') : option.name,
+        })),
+        selectedId: value ?? '',
+        onSelect: (id) => { setOpen(false); onChange(id); },
+        onClose: () => setOpen(false),
+        anchor: react.createElement('button', {
+          type: 'button',
+          className: 'modelSelectorChip',
           disabled,
           'aria-label': t('control.reasoning'),
-          onChange: (event) => onChange(event.target.value),
-        }, options.map((option) => react.createElement('option', {
-          key: option.id === '' ? 'provider-default' : option.id,
-          value: option.id,
-        }, option.id === '' ? t('effort.providerDefault') : option.name))),
-      );
+          'aria-haspopup': 'menu',
+          'aria-expanded': open ? 'true' : 'false',
+          onClick: () => setOpen((was) => !was),
+        },
+          react.createElement('span', { className: 'modelSelectorChipCaption' }, t('control.reasoning')),
+          react.createElement('span', { className: 'modelSelectorChipLabel' }, label),
+          react.createElement(IconChevronDownOutlineRegular, {
+            className: open ? 'modelSelectorChevron modelSelectorChevronOpen' : 'modelSelectorChevron',
+          }),
+        ),
+      });
     }
 
     /**
      * The full model menu: every provider group the directory advertises, with a
-     * local search box. Every pick goes through the shared directory selection.
+     * local search box. Provided names and model names are separated by the
+     * native group heading, and every pick goes through the shared directory
+     * selection.
      *
      * @param props - the locale reader, the groups, the current selection, the
-     *   search text and its setter, the pick handler, and the close handler.
+     *   search text and its setter, the pick handler, and the refs of the trigger
+     *   it hangs from and the portaled panel itself.
      * @returns the menu panel.
      */
     function ModelMenu(props) {
-      const { t, groups, current, query, onQuery, onPick, onClose } = props;
+      const { t, groups, current, query, onQuery, onPick, anchorRef, panelRef } = props;
       const needle = query.trim().toLowerCase();
+      const viewportRef = react.useRef(null);
       const sections = [];
       for (const group of groups) {
         const models = (group.models ?? []).filter(
           (model) => matchesQuery(model, needle) || (group.name ?? '').toLowerCase().includes(needle),
         );
         if (models.length === 0) continue;
-        sections.push(react.createElement('div', { className: 'modelSelectorGroup', key: group.id },
-          react.createElement('p', { className: 'modelSelectorGroupName' }, group.name),
+        sections.push(react.createElement(MenuGroup, { key: group.id, label: group.name },
           models.map((model) => {
             const active = group.id === current?.provider && model.id === current?.model;
             return react.createElement('button', {
               type: 'button',
               key: model.id,
-              className: active ? 'modelSelectorItem modelSelectorItemActive' : 'modelSelectorItem',
+              className: 'modelSelectorOption',
+              role: 'menuitem',
               'aria-current': active ? 'true' : undefined,
               onClick: () => onPick({ provider: group.id, model: model.id }),
-            }, model.name);
+            },
+              react.createElement('span', { className: 'modelSelectorOptionName' }, model.name),
+              active ? react.createElement(IconCheckOutlineRegular, { className: 'modelSelectorCheck' }) : null,
+            );
           }),
         ));
       }
-      return react.createElement('div', {
+      // The group primitive paints a sticky heading from its own observations, so
+      // hand it the scrolling viewport and re-observe whenever the filtered list
+      // it currently shows changes.
+      react.useEffect(() => {
+        const viewport = viewportRef.current;
+        if (viewport === null || typeof primitives.observeStickyMenuGroups !== 'function') return undefined;
+        return primitives.observeStickyMenuGroups(viewport);
+      }, [groups, needle]);
+      // The panel is portaled to the body and placed from the trigger rect, the
+      // way the shipped model menu does it, so the composer's scroll box cannot
+      // crop it.
+      const position = primitives.useAnchoredPosition({
+        open: true,
+        anchorRef,
+        panelRef,
+        side: 'top',
+        align: 'end',
+        gap: 6,
+        margin: 8,
+      });
+      return reactDom.createPortal(react.createElement(MenuSurface, {
+        ref: panelRef,
         className: 'modelSelectorMenu',
+        style: position === null ? MEASURE_STYLE : position,
         role: 'dialog',
         'aria-label': t('control.modelMenu'),
       },
-      react.createElement('div', { className: 'modelSelectorMenuHead' },
-        react.createElement('input', {
-          className: 'modelSelectorInput',
-          type: 'search',
-          value: query,
-          placeholder: t('menu.search'),
-          'aria-label': t('menu.search'),
-          autoFocus: true,
-          onChange: (event) => onQuery(event.target.value),
-        }),
-        react.createElement('button', { type: 'button', className: 'modelSelectorButton', onClick: onClose }, t('menu.close')),
-      ),
-      sections.length > 0
-        ? sections
-        : react.createElement('p', { className: 'modelSelectorEmpty' }, needle ? t('menu.noResults') : t('menu.empty')),
-      );
+        react.createElement('div', { className: 'modelSelectorSearchRow' },
+          react.createElement(Input, {
+            className: query === '' ? 'modelSelectorSearch' : 'modelSelectorSearch modelSelectorSearchWithQuery',
+            type: 'search',
+            value: query,
+            placeholder: t('menu.search'),
+            'aria-label': t('menu.search'),
+            autoFocus: true,
+            onChange: (event) => onQuery(event.target.value),
+          }),
+          query === '' ? null : react.createElement('button', {
+            type: 'button',
+            className: 'modelSelectorSearchClear',
+            'aria-label': t('menu.clear'),
+            onClick: () => onQuery(''),
+          }, react.createElement(IconCloseFillRegular)),
+        ),
+        react.createElement('div', { ref: viewportRef, className: 'modelSelectorGroups' },
+          sections.length > 0
+            ? sections
+            : react.createElement('p', { className: 'modelSelectorEmpty' }, needle ? t('menu.noResults') : t('menu.empty')),
+        ),
+      ), document.body);
     }
 
     /**
@@ -799,6 +929,10 @@ window.__ModuleLoader__.load({
       const [open, setOpen] = react.useState(false);
       const [query, setQuery] = react.useState('');
       const [failure, setFailure] = react.useState(undefined);
+      // The trigger wrap anchors the menu and owns dismissal; the portaled panel
+      // counts as inside it.
+      const menuRef = react.useRef(null);
+      const panelRef = react.useRef(null);
 
       // Load the shared catalog once per mount, through the latest operation.
       const loadRef = react.useRef(load);
@@ -816,6 +950,10 @@ window.__ModuleLoader__.load({
         document.addEventListener('keydown', onKeyDown);
         return () => document.removeEventListener('keydown', onKeyDown);
       }, [open]);
+      // The search box keeps this menu from being a plain `Menu`, so dismissal
+      // runs through the native hook that closes a menu on an outside pointer
+      // instead of the hand-written listener the menu used to need.
+      useDismissOnOutsidePointer(menuRef, open, setOpen, panelRef);
 
       const shortcuts = Array.isArray(formSnapshot.value?.shortcuts) ? formSnapshot.value.shortcuts : [];
       const groups = Array.isArray(state.groups) ? state.groups : [];
@@ -870,15 +1008,15 @@ window.__ModuleLoader__.load({
         visible.map((item) => react.createElement('button', {
           type: 'button',
           key: item.key,
-          className: item.key === activeKey ? 'modelSelectorButton modelSelectorShortcutActive' : 'modelSelectorButton',
+          className: item.key === activeKey ? 'modelSelectorChip modelSelectorChipActive' : 'modelSelectorChip',
           disabled: blocked,
           title: item.modelName,
           onClick: () => change({ provider: item.provider, model: item.model }),
         }, item.label)),
-        react.createElement('div', { className: 'modelSelectorMenuWrap' },
+        react.createElement('div', { className: 'modelSelectorMenuWrap', ref: menuRef },
           react.createElement('button', {
             type: 'button',
-            className: 'modelSelectorButton',
+            className: 'modelSelectorChip',
             disabled: blocked,
             'aria-haspopup': 'dialog',
             'aria-expanded': open ? 'true' : 'false',
@@ -886,7 +1024,12 @@ window.__ModuleLoader__.load({
               setOpen((was) => !was);
               setQuery('');
             },
-          }, currentName || t('control.modelMenu')),
+          },
+            react.createElement('span', { className: 'modelSelectorChipLabel' }, currentName || t('control.modelMenu')),
+            react.createElement(IconChevronDownOutlineRegular, {
+              className: open ? 'modelSelectorChevron modelSelectorChevronOpen' : 'modelSelectorChevron',
+            }),
+          ),
           open ? react.createElement(ModelMenu, {
             t,
             groups,
@@ -894,10 +1037,8 @@ window.__ModuleLoader__.load({
             query,
             onQuery: setQuery,
             onPick: pick,
-            onClose: () => {
-              setOpen(false);
-              setQuery('');
-            },
+            anchorRef: menuRef,
+            panelRef,
           }) : null,
         ),
         loading ? react.createElement('p', { className: 'modelSelectorNotice', role: 'status' }, t('menu.loading')) : null,

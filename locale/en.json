@@ -42,7 +42,7 @@
     "loading": "Loading models…",
     "selecting": "Switching…",
     "failed": "Could not switch: ",
-    "close": "Close"
+    "clear": "Clear the search"
   },
   "error": {
     "array": "The configuration has the wrong shape.",

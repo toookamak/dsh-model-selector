@@ -42,7 +42,7 @@
     "loading": "正在加载模型…",
     "selecting": "正在切换…",
     "failed": "切换失败：",
-    "close": "关闭"
+    "clear": "清除搜索"
   },
   "error": {
     "array": "配置格式不正确。",

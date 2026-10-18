@@ -6,16 +6,80 @@ import {
   visibleShortcuts,
 } from '../shortcut-config.js';
 
+/** Flatten the children the recording stub hands to a component. */
+function spread(children) {
+  const list = Array.isArray(children) ? children : [children];
+  return list.filter((child) => child !== null && child !== undefined).flat();
+}
+
+/**
+ * A stand-in for `@deepseek-ai/dsh-client-ui-primitives`, the module the shell
+ * seeds into every bundle. The real menu material is a black box here, so the
+ * stubs keep only the public shape the page renders through, plus a record of
+ * the hooks the page hands back to the platform.
+ *
+ * @param react - the React stub the material builds its nodes with.
+ * @returns the module and the calls the page made into it.
+ */
+function primitivesStub(react) {
+  const calls = { dismiss: [], sticky: [] };
+  const module = {
+    Button: (props) => react.createElement('button', {
+      type: 'button',
+      className: props.className,
+      disabled: props.disabled,
+      'data-variant': props.variant,
+      onClick: props.onClick,
+    }, ...spread(props.children)),
+    Input: (props) => react.createElement('input', {
+      className: props.className,
+      type: props.type ?? 'text',
+      value: props.value,
+      disabled: props.disabled,
+      onChange: props.onChange,
+    }),
+    MenuSurface: (props) => react.createElement('div', {
+      className: props.className,
+      role: props.role,
+    }, ...spread(props.children)),
+    MenuGroup: (props) => react.createElement('section', {
+      className: 'stub-group',
+      label: props.label,
+    }, ...spread(props.children)),
+    Menu: (props) => react.createElement('div', {
+      className: 'stub-menu',
+      items: props.items,
+      open: props.open === true,
+      selectedId: props.selectedId,
+    }, props.anchor, ...(props.open === true ? (props.items ?? []) : []).map((item) => react.createElement('button', {
+      type: 'button',
+      key: item.id,
+      className: 'stub-menu-item',
+      'data-id': item.id,
+    }, item.label))),
+    useDismissOnOutsidePointer: (root, open, setOpen) => {
+      calls.dismiss.push({ root, open, setOpen });
+    },
+    useAnchoredPosition: () => null,
+    observeStickyMenuGroups: (viewport) => {
+      calls.sticky.push(viewport);
+      return () => {};
+    },
+  };
+  return { module, calls };
+}
+
 /**
  * Load the browser bundle the way the module loader does, without a browser.
  *
- * The factory only needs `react` at render time, so a recording stub is enough
- * to reach the exports the page actually uses.
+ * The factory only needs `react` and the platform's UI primitives at render time,
+ * so recording stubs are enough to reach the exports the page actually uses.
  *
  * @param react - an optional React stub; the default one stops at the exports.
+ * @param primitives - an optional primitive stub, when a test reads its calls.
  * @returns the bundle's exports.
  */
-function loadBundle(react) {
+function loadBundle(react, primitives) {
   const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8');
   let loaded;
   const window = { __ModuleLoader__: { load: (spec) => { loaded = spec; } } };
@@ -29,8 +93,13 @@ function loadBundle(react) {
     useState: (value) => [typeof value === 'function' ? value() : value, () => {}],
     useSyncExternalStore: () => undefined,
   };
+  const material = primitives ?? primitivesStub(stub).module;
   return loaded.factory((name) => {
     if (name === 'react') return stub;
+    if (name === '@deepseek-ai/dsh-client-ui-primitives') return material;
+    // The portaled menu needs `createPortal`; the stub returns the node where the
+    // real renderer would mount it in the document body.
+    if (name === 'react-dom') return { createPortal: (node) => node };
     throw new Error(`the bundle may not require ${name}`);
   });
 }
@@ -47,19 +116,24 @@ function loadBundle(react) {
 function statefulReact() {
   const nodes = [];
   const hooks = [];
+  const queued = [];
   let cursor = 0;
   let pending;
   let view = () => {};
   const flush = () => {
-    for (let round = 0; round < 20 && pending !== undefined; round += 1) {
+    for (let round = 0; round < 20; round += 1) {
+      if (pending === undefined && queued.length === 0) return;
       const next = pending;
       pending = undefined;
-      view = next;
+      if (next !== undefined) view = next;
       // Every render starts at the first hook slot again; without this the
       // cursor walks past the effects and they would replay on every render.
       cursor = 0;
       nodes.length = 0;
       view();
+      // Effects run once the tree is in place, the way the real renderer commits
+      // them, so a ref an effect reads is already attached.
+      while (queued.length > 0) queued.shift()();
     }
   };
   const react = {
@@ -69,6 +143,9 @@ function statefulReact() {
       // these props; the stub calls it inline, so nested pages render too.
       if (typeof type === 'function') return type({ ...props, children });
       const node = { type, props, children };
+      // A host element hands itself to its ref before the effects run, which is
+      // what lets an effect measure the node it just rendered.
+      if (typeof type === 'string' && props.ref !== null && props.ref !== undefined) props.ref.current = node;
       nodes.push(node);
       return node;
     },
@@ -77,7 +154,7 @@ function statefulReact() {
       const index = cursor++;
       if (hooks[index] === true) return;
       hooks[index] = true;
-      effect();
+      queued.push(effect);
     },
     useRef: (value) => {
       const index = cursor++;
@@ -280,10 +357,11 @@ test('mirrors the save flow and its canonical failures', async () => {
  * records every claim, and the `document` the style tag needs.
  *
  * @param react - an optional interactive React stub, for tests that render.
+ * @param primitives - an optional primitive stub, when a test reads its calls.
  * @returns the recorded registrations and the Host events subscribed.
  */
-function mountBundle(react) {
-  const bundle = loadBundle(react);
+function mountBundle(react, primitives) {
+  const bundle = loadBundle(react, primitives);
   const registered = [];
   const subscribed = [];
   const fakeForm = {
@@ -322,7 +400,10 @@ function mountBundle(react) {
     configForms: { get: () => fakeForm },
     modelDirectories: {
       directoryFor: () => ({
-        store: { subscribe: () => () => {}, getSnapshot: () => ({ status: 'idle', groups: [] }) },
+        store: {
+          subscribe: () => () => {},
+          getSnapshot: () => ({ status: 'ready', groups, current: { provider: 'provider-a', model: 'model-2' } }),
+        },
         load: async () => {},
         select: async () => ({ ok: true }),
       }),
@@ -430,23 +511,25 @@ test('renders the shortcut pickers out of the configured catalog', async () => {
   page.start(section.component, { t: (key) => key, ...section.spec.inject() });
   await page.settle();
 
-  const selects = () => page.nodes.filter((node) => node.type === 'select');
-  const offered = (select) => select.children[0].map((option) => [option.props.value, option.children.join('')]);
-  assert.equal(selects().length, 2);
+  // Both dropdowns are the shell's own menu, never the browser's dropdown box.
+  const menus = () => page.nodes.filter((node) => node.props.className === 'stub-menu');
+  const offered = (menu) => menu.props.items.map((item) => [item.id, item.label]);
+  assert.ok(!page.nodes.some((node) => node.type === 'select'));
+  assert.equal(menus().length, 2);
   // The configured pair survives even though the catalog retired it, and both
   // configured providers stay on offer.
-  assert.deepEqual(offered(selects()[0]), [
+  assert.deepEqual(offered(menus()[0]), [
     ['', 'settings.pickProvider'],
     ['provider-a', 'Provider A'],
     ['provider-b', 'Provider B'],
   ]);
-  assert.deepEqual(offered(selects()[1]), [
+  assert.deepEqual(offered(menus()[1]), [
     ['model-retired', 'model-retiredsettings.unavailable'],
     ['model-1', 'Model One'],
     ['model-2', 'Model Two'],
   ]);
-  assert.equal(selects()[0].props.value, 'provider-a');
-  assert.equal(selects()[1].props.value, 'model-retired');
+  assert.equal(menus()[0].props.selectedId, 'provider-a');
+  assert.equal(menus()[1].props.selectedId, 'model-retired');
   // A loaded catalog explains nothing; the alias stays a text field.
   assert.ok(!page.nodes.some((node) => node.props.className === 'modelSelectorNotice'));
   const alias = page.nodes.find((node) => node.type === 'label' && node.props.className === 'modelSelectorField');
@@ -458,7 +541,75 @@ test('renders the shortcut pickers out of the configured catalog', async () => {
   const add = page.nodes.find((node) => node.type === 'button' && node.children[0] === 'settings.add');
   add.props.onClick();
   page.step();
-  assert.equal(selects().length, 4);
-  assert.equal(selects()[2].props.value, 'provider-a');
-  assert.equal(selects()[3].props.value, 'model-1');
+  assert.equal(menus().length, 4);
+  assert.equal(menus()[2].props.selectedId, 'provider-a');
+  assert.equal(menus()[3].props.selectedId, 'model-1');
 });
+
+/**
+ * Run a test body against a minimal document, which the portaled menu and the
+ * key listener reach for the way a browser would.
+ *
+ * @param body - the test body to run.
+ * @returns the body's promise.
+ */
+async function withDocument(body) {
+  const original = globalThis.document;
+  globalThis.document = { body: {}, addEventListener: () => {}, removeEventListener: () => {} };
+  try {
+    return await body();
+  } finally {
+    if (original === undefined) delete globalThis.document;
+    else globalThis.document = original;
+  }
+}
+
+test('dresses the composer row in the shell’s own controls', () => withDocument(async () => {
+  const page = statefulReact();
+  const material = primitivesStub(page.react);
+  const { registered } = mountBundle(page.react, material.module);
+  const seat = registered.find((entry) => entry.spec.name === 'conversation.input.model');
+  page.start(seat.component, { t: (key) => key, ...seat.spec.inject('session-1') });
+  await page.settle();
+
+  // The reasoning picker is a menu, not the browser's dropdown box, and its
+  // dismissal belongs to the native hook from the first render on.
+  const reasoning = page.nodes.find((node) => node.props.className === 'stub-menu');
+  assert.deepEqual(reasoning.props.items, [
+    { id: '', label: 'effort.providerDefault' },
+    { id: 'low', label: 'Low' },
+  ]);
+  assert.ok(!page.nodes.some((node) => node.type === 'select'));
+  assert.equal(material.calls.dismiss.at(-1).open, false);
+
+  const trigger = page.nodes.find((node) => node.type === 'button' && node.props['aria-haspopup'] === 'dialog');
+  assert.equal(trigger.props.className, 'modelSelectorChip');
+  trigger.props.onClick();
+  page.step();
+
+  assert.equal(material.calls.dismiss.at(-1).open, true);
+  const surface = page.nodes.find((node) => node.props.className === 'modelSelectorMenu');
+  assert.equal(surface.type, 'div');
+  // Provider names come from the native group, so they are styled apart from the
+  // model names inside them.
+  assert.deepEqual(
+    page.nodes.filter((node) => node.props.className === 'stub-group').map((node) => node.props.label),
+    ['Provider A'],
+  );
+  assert.equal(page.nodes.find((node) => node.props.className === 'modelSelectorSearch').props.type, 'search');
+  assert.equal(material.calls.sticky.length, 1);
+  // A typed query brings the native clear affordance back, and clearing it puts
+  // the search box back to its plain shape.
+  const search = () => page.nodes.find((node) => node.type === 'input' && String(node.props.className).startsWith('modelSelectorSearch'));
+  search().props.onChange({ target: { value: 'one' } });
+  page.step();
+  assert.equal(search().props.className, 'modelSelectorSearch modelSelectorSearchWithQuery');
+  const clear = page.nodes.find((node) => node.props.className === 'modelSelectorSearchClear');
+  assert.equal(clear.props['aria-label'], 'menu.clear');
+  clear.props.onClick();
+  page.step();
+  assert.equal(search().props.value, '');
+  assert.ok(!page.nodes.some((node) => node.props.className === 'modelSelectorSearchClear'));
+  // The platform hook dismisses the menu, so it needs no close button.
+  assert.ok(!page.nodes.some((node) => (node.children ?? []).includes('menu.close')));
+}));

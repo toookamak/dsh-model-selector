@@ -464,3 +464,21 @@ git commit -m "test: verify model selector in dsh"
 - 依赖与实现：client 增加 `remote`、`remote.session` 注入，`package.json` 的 `dsh.client.inject` 增加 `@deepseek-ai/dsh-api-remotes`；纯规则 `shortcutChoices(groups, rows, index)` 同时落在 `shortcut-config.js` 与 client bundle，测试比对两份实现。
 - 测试同步：`tests/client-bundle.test.js` 新增可交互的 React stub（`statefulReact`），真实渲染设置页并断言两处下拉的选项、退役 pair 的「（不可用）」标记，以及「添加快捷模型」预填的 pair；镜像与清单断言同步更新（33 项测试通过）。
 - 版本：1.0.1 → 1.0.2。
+
+---
+
+## 修订记录：控件改用宿主原生样式与菜单（2026-10-18，v1.0.3）
+
+**问题（用户反馈）：** ① 对话框上的选择按钮与推理等级按钮高度不一致；② 切换模型弹出的菜单颜色与 DSH 不一致、部分文字与底色接近难以辨认，打开后点击别处不会自动消失，且关闭按钮过于显眼；③ 推理等级展开的菜单是浏览器默认的直角样式；④ 设置页里的模型选择菜单颜色样式同样不对、文字看不清。
+
+**修订决策：**
+
+- 不再自绘控件，改为复用平台 seed 模块 `@deepseek-ai/dsh-client-ui-primitives`（`PLATFORM_MODULES` 之一，动态 bundle 可直接 `require`）：`Menu`（原生下拉）、`MenuSurface` + `MenuGroup`（原生菜单材质与分组标题）、`Input`、`Button`、`useDismissOnOutsidePointer`、`observeStickyMenuGroups` 与产品图标。
+- 高度对齐：快捷按钮与模型触发器改用原生触发器配方（`height: 28px`、`padding: 0 8px`、`border-radius: var(--dsw-radius-sm)`、`color: var(--dsw-alias-label-secondary)`、hover 为 `--dsw-alias-interactive-bg-hover`），与 composer 原生控件（同为 28px）齐平。
+- 菜单材质：模型菜单改为 `MenuSurface`，逐字沿用原生配方（`--dsw-elevation-stroke-color`、`--dsw-elevation-prominent`、`label-primary`、`--dsh-scrollbar-*`）；服务商名改由 `MenuGroup` 渲染，与模型名在样式上分离；搜索框改用 `Input` 并补回原生清除按钮；选中标记与展开箭头改用产品图标（`IconCheckOutlineRegular` / `IconChevronDownOutlineRegular` / `IconCloseFillRegular`）。
+- 自动关闭：模型菜单改由 `useDismissOnOutsidePointer` 关闭（此前只有自绘的 Escape 监听），并删除自绘的关闭按钮；推理等级与设置页下拉改用 `Menu`，其外部点击、Escape 与失焦关闭由原语自身处理。
+- 设置页：两处选择器与全部按钮改用原生 `Menu` / `Button` / `Input`，颜色与几何随主题 token 走。
+- 层级与裁剪：模型菜单与两处原生菜单都 `portal` 到 `document.body`，并按触发器矩形定位（`useAnchoredPosition` 与 `Menu` 的 `portal` 模式），避免 composer 与设置页的滚动容器裁剪菜单。
+- 文案同步：删除不再使用的 `menu.close`（client 字典与 `locale/*.json` 四处），新增 `menu.clear`（搜索清除）。
+- 测试同步：新增原语 stub（`primitivesStub`）与 `react-dom` 的 `createPortal` stub；`statefulReact` 改为在渲染结束后统一执行副作用、并挂接宿主元素的 ref；设置页断言改读原生菜单的选项与选中值；新增 composer 控制行测试（原生菜单、portal、清除按钮、无自绘关闭按钮）。34 项测试通过。
+- 版本：1.0.2 → 1.0.3。
