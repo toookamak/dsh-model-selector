@@ -132,3 +132,21 @@ test('leaves the model metadata it reads untouched', () => {
   reasoningOptions(model);
   assert.deepEqual(model, before);
 });
+
+test('returns nothing when there is nothing to show', () => {
+  assert.deepEqual(visibleShortcuts([], groups), []);
+  assert.deepEqual(visibleShortcuts([{ provider: 'provider-a', model: 'model-1' }], []), []);
+  assert.deepEqual(visibleShortcuts(undefined, undefined), []);
+  assert.equal(activeShortcut(undefined, { provider: 'provider-a', model: 'model-1' }), undefined);
+});
+
+test('leaves the configuration and the directory it reads untouched', () => {
+  const configured = [{ provider: 'provider-a', model: 'model-1', alias: ' Mine ' }];
+  const directory = structuredClone(groups);
+  const beforeConfigured = structuredClone(configured);
+  const beforeDirectory = structuredClone(directory);
+  visibleShortcuts(configured, directory);
+  activeShortcut(configured, { provider: 'provider-a', model: 'model-1' });
+  assert.deepEqual(configured, beforeConfigured);
+  assert.deepEqual(directory, beforeDirectory);
+});
