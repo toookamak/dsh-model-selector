@@ -324,7 +324,7 @@ Expected: 新增状态映射测试 FAIL。
 
 - [ ] **Step 3：接入当前 DSH Slot 与 `ModelDirectory`**
 
-使用 Client 依赖 `@deepseek-ai/dsh-client-ui-model-selection`，在 `ctx.inject(['slots','locale','configForms','modelDirectories'], ...)` 中进行 slot 注册。对 `conversation.input.model` 注册 `priority: 100` 的空组件，让原生菜单不再重复出现；将完整插件控制行放在 `conversation.composer.dock`（其 live 目的为 composer 卡片下方，列表型、可追加、无 replace risk），条目 id 使用 `model-selector-controls`、order 为 `5`。两项注册都经 `ctx.slots.inject`，由 Cordis effect 自动清理。
+使用 Client 依赖 `@deepseek-ai/dsh-client-ui-model-selection`，在 `ctx.inject(['slots','locale','configForms','modelDirectories'], ...)` 中进行 slot 注册。`conversation.input.model` 是单组件插槽：当前 live 树同时列出 `installDirectorySlots`（priority `-10`，`active: true`）与 `Kb`（priority `0`，`active: false`），说明单插槽按 priority 升序取首个（数值越小越优先）。因此注册空组件时必须取更小的值，例如 `priority: -1000`，让原生模型组件不再渲染、避免重复菜单；安装后必须用 live 树确认本插件 occupant 为 active、原生 occupant 变为 inactive，若语义相反则改用更大的正值并在注释中记录实测结论。将完整插件控制行放在 `conversation.composer.dock`（其 live 目的为 composer 卡片下方，列表型、可追加、无 replace risk），条目 id 使用 `model-selector-controls`、order 为 `5`。两项注册都经 `ctx.slots.inject`，由 Cordis effect 自动清理。
 
 `conversation.composer.dock` 的会话注入按官方同包做法解析 `scope.modelDirectories.directoryFor(sessionId)`，组件订阅 `directory.store` 的 `subscribe/getSnapshot`，首次挂载调用 `directory.load()`。所有模型变化都从 store 的 `current` 读取；不得从按钮点击乐观推断成功。快捷项通过 `visibleShortcuts(config.shortcuts, state.groups)` 映射，点击调用 `directory.select({ provider, model })`，不传快捷配置中的 reasoning；选择失败时读取返回的失败结果并显示消息，仍以 store 实际状态渲染。
 
