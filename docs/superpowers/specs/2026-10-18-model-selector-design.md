@@ -1,7 +1,7 @@
 # DSH 对话框模型快捷切换插件设计
 
 **日期：** 2026-10-18  
-**状态：** 根据当前 DSH 插槽能力修订，待用户复审  
+**状态：** 用户已确认（2026-10-18）  
 **项目：** `F:\Git\dsh-model-selector`（全新空插件工作区）
 
 ## 1. 背景与目标
@@ -38,7 +38,7 @@ DSH 当前通过列表菜单选择模型。该插件为对话输入框下方提�
 
 设置保存改变快捷模型列表时，控制栏使用新配置重新渲染。某个模型不可用不会清除用户设置，也不应妨碍其余快捷按钮或原菜单工作。
 
-**接口待实施阶段核实：** 本工作区目前为空，具体对话扩展点、插件配置 schema、状态订阅方式及模型/推理等级选择 API 尚未确认。实现前必须根据目标 DSH 版本和现有 Cordis 插件接口核实这些能力；不得假设未核实的服务名、事件名或 Slot。
+**当前运行时接口核实记录：** 当前 DSH `0.2.1-rc.2` 的插件包源码和 live Slot tree 已核对：`conversation.input.model` 为单组件插槽且接管有遮蔽宿主 UI 的风险；`conversation.composer.dock` 是 composer 卡片下方的可追加列表插槽；`@deepseek-ai/dsh-client-ui-model-selection` 提供共享 `ModelDirectory`，其 `store`、`load()`、`select(selection)` 可复用；`@deepseek-ai/dsh-client-ui-settings` 的 `configForms` 支持 Host 配置持久化。由于这些包当前未全部挂载，`modelDirectories` 尚未出现在 live Service Inspector；实现时必须在 `dsh.client.inject` 中声明依赖，并在实际加载后再次验证接口与插槽覆盖行为。
 
 ## 5. 异常与降级
 
@@ -46,7 +46,7 @@ DSH 当前通过列表菜单选择模型。该插件为对话输入框下方提�
 - 暂不可用的配置模型保留但隐藏，其他控件保持可用。
 - 模型不支持推理等级时隐藏推理等级控件；支持时展示其原生等级选项。
 - 选择动作失败或宿主状态未变化时，仍展示宿主实际状态，不以按钮点击本身推断切换成功。
-- 插件重现的模型菜单始终作为选择任意可用模型的回退路径；具体模型目录和选择 API 在实施阶段通过 DSH 插件接口核实。
+- 插件重现的模型菜单始终作为选择任意可用模型的回退路径；菜单和快捷按钮均调用 DSH 共享 `ModelDirectory.select(selection)`，目录状态读取 `ModelDirectory.store`，不得另行实现模型目录或核心选择逻辑。
 
 ## 6. 验收与测试范围
 
