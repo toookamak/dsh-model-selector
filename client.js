@@ -22,6 +22,13 @@ window.__ModuleLoader__.load({
     const PLUGIN_ID = '@local/dsh-model-selector';
     /** The settings page never offers a fourth shortcut. */
     const MAX_SHORTCUTS = 3;
+    /** Host events that can move the list of configured models. */
+    const CATALOG_EVENTS = [
+      'llm/adapters-updated',
+      'settings/document-updated',
+      'credentials/record-updated',
+      'credentials/reference-updated',
+    ];
 
     /* ------------------------------------------------------------------ *
      * Pure shortcut rules (mirror of shortcut-config.js)
@@ -101,6 +108,62 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * Build the two pickers' choices for one shortcut row from the live catalog
+     * (mirror of `shortcutChoices` in shortcut-config.js).
+     *
+     * The settings page never asks for a provider or a model ID by hand: the
+     * choices come from the same catalog the composer menu reads, so a saved
+     * shortcut always has a button to show. Models another row already holds are
+     * left out of this row's choices, which is what keeps the duplicate rule from
+     * only firing on Save; the row's own pair survives even when the catalog no
+     * longer advertises it, so an unavailable shortcut can still be read and
+     * removed instead of being silently rewritten.
+     *
+     * @param groups - the catalog's provider groups, in catalog order.
+     * @param rows - every draft row, in page order.
+     * @param index - the row these choices are for.
+     * @returns the offered providers (each with its selectable models), the row's
+     *   normalized provider, and that provider's models.
+     */
+    function shortcutChoices(groups, rows, index) {
+      const row = (rows ?? [])[index] ?? {};
+      const provider = typeof row.provider === 'string' ? row.provider.trim() : '';
+      const model = typeof row.model === 'string' ? row.model.trim() : '';
+      const taken = new Set();
+      (rows ?? []).forEach((item, at) => {
+        if (at === index) return;
+        const held = typeof item?.provider === 'string' ? item.provider.trim() : '';
+        const heldModel = typeof item?.model === 'string' ? item.model.trim() : '';
+        if (held && heldModel) taken.add(modelKey(held, heldModel));
+      });
+      const providers = [];
+      for (const group of groups ?? []) {
+        const own = group.id === provider;
+        const models = [];
+        for (const entry of group.models ?? []) {
+          if (taken.has(modelKey(group.id, entry.id))) continue;
+          models.push({ id: entry.id, name: entry.name ?? entry.id, unavailable: false });
+        }
+        // A provider whose every model is already held offers nothing; only the
+        // row that points at it keeps it, so its configured value stays readable.
+        if (models.length === 0 && !own) continue;
+        if (own && model && !models.some((entry) => entry.id === model)) {
+          models.unshift({ id: model, name: model, unavailable: true });
+        }
+        providers.push({ id: group.id, name: group.name ?? group.id, models });
+      }
+      if (provider && !providers.some((entry) => entry.id === provider)) {
+        providers.unshift({
+          id: provider,
+          name: provider,
+          models: model ? [{ id: model, name: model, unavailable: true }] : [],
+        });
+      }
+      const selected = providers.find((entry) => entry.id === provider);
+      return { providers, provider, models: selected === undefined ? [] : selected.models };
+    }
+
+    /**
      * Find the configured shortcut the current selection is showing.
      *
      * Only the provider/model pair decides the match: the reasoning effort is an
@@ -173,10 +236,10 @@ window.__ModuleLoader__.load({
     /** Simplified Chinese dictionary (the key-set source of truth). */
     const zh = {
       'meta.title': '模型选择器',
-      'meta.description': '在对话输入框下方提供推理等级、快捷模型与完整模型菜单。',
+      'meta.description': '在对话输入框右下角提供推理等级、快捷模型与完整模型菜单。',
       'settings.title': '模型选择器',
-      'settings.summary': '配置对话输入框下方的快捷模型按钮（最多三个）。',
-      'settings.intro': '快捷模型按此处顺序显示在输入框下方；别名为空时使用模型原名。',
+      'settings.summary': '配置输入框右下角的快捷模型按钮（最多三个）。',
+      'settings.intro': '快捷模型按钮显示在输入框右下角的模型按钮旁；别名为空时使用模型原名。',
       'settings.empty': '尚未配置快捷模型。',
       'settings.add': '添加快捷模型',
       'settings.remove': '删除',
@@ -185,8 +248,15 @@ window.__ModuleLoader__.load({
       'settings.saved': '已保存。',
       'settings.discard': '撤销修改',
       'settings.readOnly': '本部署的设置为只读。',
-      'field.provider': 'Provider ID',
-      'field.model': 'Model ID',
+      'settings.pickProvider': '选择服务商…',
+      'settings.pickModel': '选择模型…',
+      'settings.unavailable': '（不可用）',
+      'settings.catalogLoading': '正在读取已配置的模型…',
+      'settings.catalogFailed': '无法读取已配置的模型：',
+      'settings.catalogRetry': '重试',
+      'settings.catalogEmpty': '还没有已配置的模型，请先在「模型」设置里添加服务商。',
+      'field.provider': '服务商',
+      'field.model': '模型',
       'field.alias': '显示名称（可选）',
       'control.reasoning': '推理等级',
       'control.modelMenu': '选择模型',
@@ -200,8 +270,8 @@ window.__ModuleLoader__.load({
       'menu.close': '关闭',
       'error.array': '配置格式不正确。',
       'error.limit': '最多只能配置三个快捷模型。',
-      'error.provider': '请填写 Provider ID。',
-      'error.model': '请填写 Model ID。',
+      'error.provider': '请选择服务商。',
+      'error.model': '请选择模型。',
       'error.duplicate': '同一个模型不能重复配置。',
       'error.readOnly': '本部署的设置为只读。',
       'error.rejected': '本部署没有接受这些值，已保留供你修改。',
@@ -210,10 +280,10 @@ window.__ModuleLoader__.load({
     /** English dictionary, checked complete against the zh key set. */
     const en = {
       'meta.title': 'Model selector',
-      'meta.description': 'Reasoning effort, shortcut models, and the full model menu below the composer.',
+      'meta.description': 'Reasoning effort, shortcut models, and the full model menu in the composer’s right corner.',
       'settings.title': 'Model selector',
-      'settings.summary': 'Configure the shortcut model buttons below the composer (up to three).',
-      'settings.intro': 'Shortcuts appear below the composer in this order; an empty alias falls back to the model name.',
+      'settings.summary': 'Configure the shortcut model buttons in the composer’s right corner (up to three).',
+      'settings.intro': 'Shortcuts sit in the composer’s right corner beside the model button, in this order; an empty alias falls back to the model name.',
       'settings.empty': 'No shortcut models configured yet.',
       'settings.add': 'Add shortcut',
       'settings.remove': 'Remove',
@@ -222,8 +292,15 @@ window.__ModuleLoader__.load({
       'settings.saved': 'Saved.',
       'settings.discard': 'Discard changes',
       'settings.readOnly': 'This deployment’s settings are read-only.',
-      'field.provider': 'Provider ID',
-      'field.model': 'Model ID',
+      'settings.pickProvider': 'Choose a provider…',
+      'settings.pickModel': 'Choose a model…',
+      'settings.unavailable': ' (unavailable)',
+      'settings.catalogLoading': 'Reading the configured models…',
+      'settings.catalogFailed': 'Could not read the configured models: ',
+      'settings.catalogRetry': 'Retry',
+      'settings.catalogEmpty': 'No models are configured yet; add a provider under Models first.',
+      'field.provider': 'Provider',
+      'field.model': 'Model',
       'field.alias': 'Display name (optional)',
       'control.reasoning': 'Reasoning effort',
       'control.modelMenu': 'Choose a model',
@@ -257,6 +334,7 @@ window.__ModuleLoader__.load({
 .modelSelectorEmpty{color:var(--dsw-alias-label-tertiary)}
 .modelSelectorRow{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;padding:10px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-layer-2)}
 .modelSelectorField{display:flex;flex:1 1 150px;flex-direction:column;gap:4px;min-width:150px}
+.modelSelectorWide{flex:1 1 220px;min-width:220px}
 .modelSelectorLabel{color:var(--dsw-alias-label-secondary);font-size:12px}
 .modelSelectorInput{box-sizing:border-box;width:100%;padding:5px 8px;border:1px solid var(--dsw-alias-border-l1);border-radius:6px;background:transparent;color:inherit;font:inherit}
 .modelSelectorInput:focus{outline:none;border-color:var(--dsw-alias-brand-primary)}
@@ -310,17 +388,52 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * One labelled dropdown of the settings form.
+     *
+     * @param t - the page's locale reader.
+     * @param labelKey - dictionary key of the field label.
+     * @param value - the selected option value.
+     * @param disabled - whether the field accepts input.
+     * @param options - the selectable options, in render order.
+     * @param onChange - receives the picked value.
+     * @returns the field element.
+     */
+    function selectField(t, labelKey, value, disabled, options, onChange) {
+      return react.createElement('label', { className: 'modelSelectorField modelSelectorWide', key: labelKey },
+        react.createElement('span', { className: 'modelSelectorLabel' }, t(labelKey)),
+        react.createElement('select', {
+          className: 'modelSelectorInput',
+          value,
+          disabled,
+          'aria-label': t(labelKey),
+          onChange: (event) => onChange(event.target.value),
+        }, options.map((option) => react.createElement('option', {
+          key: option.value === '' ? 'empty' : option.value,
+          value: option.value,
+        }, option.label))),
+      );
+    }
+
+    /**
      * The editable shortcut list.
      *
-     * @param props - the locale reader, the config form, and its snapshot.
+     * Every row picks its provider and model out of the live catalog instead of
+     * accepting free text, so a saved pair is always a pair the composer can
+     * render; a pair the catalog no longer offers stays in the list, marked
+     * unavailable, so it can be removed deliberately.
+     *
+     * @param props - the locale reader, the config form, its snapshot, and the
+     *   configured-model reader.
      * @returns the settings form.
      */
     function ShortcutSettingsForm(props) {
-      const { t, form, snapshot } = props;
+      const { t, form, snapshot, modelCatalog } = props;
       const writable = snapshot.writable === true;
       const [draft, setDraft] = react.useState(() => shortcutRows(snapshot.value));
       const [notice, setNotice] = react.useState();
       const [busy, setBusy] = react.useState(false);
+      const catalog = useModelGroups(modelCatalog);
+      const groups = catalog.groups;
 
       // Follow the Host-accepted value whenever it changes; local edits stay
       // local until Save, so a rejected draft is never silently overwritten.
@@ -331,8 +444,26 @@ window.__ModuleLoader__.load({
       const update = (index, field_, value) => {
         setDraft((rows) => rows.map((row, at) => (at === index ? { ...row, [field_]: value } : row)));
       };
+      // A provider always brings one of its models with it, so the second
+      // dropdown never points at a model that belongs to another provider.
+      const pickProvider = (index, provider) => {
+        setDraft((rows) => rows.map((row, at) => {
+          if (at !== index) return row;
+          const choice = shortcutChoices(groups, rows, at).providers.find((entry) => entry.id === provider);
+          const model = choice === undefined || choice.models.length === 0 ? '' : choice.models[0].id;
+          return { ...row, provider, model };
+        }));
+      };
       const addRow = () => {
-        setDraft((rows) => (rows.length >= MAX_SHORTCUTS ? rows : [...rows, { provider: '', model: '', alias: '' }]));
+        setDraft((rows) => {
+          if (rows.length >= MAX_SHORTCUTS) return rows;
+          const choice = shortcutChoices(groups, rows, rows.length).providers[0];
+          return [...rows, {
+            provider: choice === undefined ? '' : choice.id,
+            model: choice === undefined || choice.models.length === 0 ? '' : choice.models[0].id,
+            alias: '',
+          }];
+        });
       };
       const removeRow = (index) => {
         setDraft((rows) => rows.filter((_, at) => at !== index));
@@ -355,20 +486,35 @@ window.__ModuleLoader__.load({
           : { tone: 'error', text: errorText(t, result.error) });
       };
 
-      const rows = draft.map((row, index) => react.createElement('div', { className: 'modelSelectorRow', key: `row-${index}` },
-        field(t, 'field.provider', row.provider, !writable, (value) => update(index, 'provider', value)),
-        field(t, 'field.model', row.model, !writable, (value) => update(index, 'model', value)),
-        field(t, 'field.alias', row.alias, !writable, (value) => update(index, 'alias', value)),
-        react.createElement('button', {
-          type: 'button',
-          className: 'modelSelectorButton',
-          disabled: !writable,
-          onClick: () => removeRow(index),
-        }, t('settings.remove')),
-      ));
+      const rows = draft.map((row, index) => {
+        const choice = shortcutChoices(groups, draft, index);
+        const known = choice.models.some((entry) => entry.id === row.model);
+        const noProvider = choice.provider === '';
+        const providerOptions = [{ value: '', label: t('settings.pickProvider') }].concat(
+          choice.providers.map((entry) => ({ value: entry.id, label: entry.name })),
+        );
+        const modelOptions = (known ? [] : [{ value: '', label: t('settings.pickModel') }]).concat(
+          choice.models.map((entry) => ({
+            value: entry.id,
+            label: entry.unavailable ? `${entry.name}${t('settings.unavailable')}` : entry.name,
+          })),
+        );
+        return react.createElement('div', { className: 'modelSelectorRow', key: `row-${index}` },
+          selectField(t, 'field.provider', noProvider ? '' : choice.provider, !writable, providerOptions, (value) => pickProvider(index, value)),
+          selectField(t, 'field.model', known ? row.model : '', !writable || noProvider, modelOptions, (value) => update(index, 'model', value)),
+          field(t, 'field.alias', row.alias, !writable, (value) => update(index, 'alias', value)),
+          react.createElement('button', {
+            type: 'button',
+            className: 'modelSelectorButton',
+            disabled: !writable,
+            onClick: () => removeRow(index),
+          }, t('settings.remove')),
+        );
+      });
 
       return react.createElement('div', { className: 'modelSelectorPage' },
         react.createElement('p', { className: 'modelSelectorIntro' }, t('settings.intro')),
+        catalogNotice(t, catalog),
         rows.length > 0 ? rows : react.createElement('p', { className: 'modelSelectorEmpty' }, t('settings.empty')),
         react.createElement('div', { className: 'modelSelectorActions' },
           react.createElement('button', {
@@ -411,17 +557,88 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * Follow the Host's configured-model catalog.
+     *
+     * The settings page offers the very models the composer menu shows, so a
+     * saved shortcut is always renderable; the catalog is re-read whenever the
+     * Host reports that providers, credentials, or settings moved.
+     *
+     * @param modelCatalog - the catalog reader: `load()` and `subscribe(notify)`.
+     * @returns the current provider groups, the load status, and a reload.
+     */
+    function useModelGroups(modelCatalog) {
+      const [state, setState] = react.useState({ status: 'loading', groups: [], error: undefined });
+      // The slot hands in a fresh reader object on every render, so the effect
+      // below must not depend on its identity: call through the ref instead.
+      const catalogRef = react.useRef(modelCatalog);
+      catalogRef.current = modelCatalog;
+      const load = react.useCallback(() => {
+        setState((current) => ({ ...current, status: 'loading', error: undefined }));
+        let answer;
+        try {
+          answer = Promise.resolve(catalogRef.current.load());
+        } catch (error) {
+          answer = Promise.reject(error);
+        }
+        answer.then((response) => {
+          if (response === undefined || response === null || response.ok !== true) {
+            const failure = response === undefined || response === null ? undefined : response.error;
+            setState({ status: 'error', groups: [], error: failure === undefined ? '' : `${failure.code}: ${failure.message}` });
+            return;
+          }
+          setState({ status: 'ready', groups: response.value?.groups ?? [], error: undefined });
+        }).catch((error) => {
+          setState({ status: 'error', groups: [], error: String(error?.message ?? error) });
+        });
+      }, []);
+      react.useEffect(() => {
+        load();
+        const stop = catalogRef.current.subscribe(load);
+        return typeof stop === 'function' ? stop : undefined;
+      }, [load]);
+      return { status: state.status, groups: state.groups, error: state.error, reload: load };
+    }
+
+    /**
+     * The catalog's load state, as the line of the settings page that explains
+     * why the dropdowns are empty.
+     *
+     * @param t - the page's locale reader.
+     * @param catalog - the current catalog state, including its reload.
+     * @returns the notice, or nothing once the catalog has groups.
+     */
+    function catalogNotice(t, catalog) {
+      if (catalog.status === 'error') {
+        return react.createElement('div', { className: 'modelSelectorActions' },
+          react.createElement('p', { className: 'modelSelectorNotice modelSelectorError', role: 'alert' },
+            `${t('settings.catalogFailed')}${catalog.error ?? ''}`),
+          react.createElement('button', { type: 'button', className: 'modelSelectorButton', onClick: catalog.reload },
+            t('settings.catalogRetry')),
+        );
+      }
+      if (catalog.status === 'loading' && catalog.groups.length === 0) {
+        return react.createElement('p', { className: 'modelSelectorNotice', role: 'status' }, t('settings.catalogLoading'));
+      }
+      if (catalog.groups.length === 0) {
+        return react.createElement('p', { className: 'modelSelectorNotice', role: 'status' }, t('settings.catalogEmpty'));
+      }
+      return null;
+    }
+
+    /**
      * The Plugins page entry: a one-liner in the card list, the form once opened.
      *
-     * @param props - the asked-for view, the slot's locale reader, and the form.
+     * @param props - the asked-for view, the slot's locale reader, the form, and
+     *   the configured-model reader.
      * @returns the summary line or the settings form.
      */
     function SettingsPage(props) {
       const t = props.t;
       const form = props.settingsForm;
+      const modelCatalog = props.modelCatalog;
       const snapshot = useFormSnapshot(form);
       if (props.view === 'summary') return t('settings.summary');
-      return react.createElement(ShortcutSettingsForm, { t, form, snapshot });
+      return react.createElement(ShortcutSettingsForm, { t, form, snapshot, modelCatalog });
     }
 
     /**
@@ -431,16 +648,18 @@ window.__ModuleLoader__.load({
      * supplies the title and then the very form the Plugins page shows: one
      * configuration, two doors, no second copy of the state.
      *
-     * @param props - the slot's locale reader and the shortcut configuration form.
+     * @param props - the slot's locale reader, the shortcut configuration form,
+     *   and the configured-model reader.
      * @returns the settings section page.
      */
     function SettingsSection(props) {
       const t = props.t;
       const form = props.settingsForm;
+      const modelCatalog = props.modelCatalog;
       const snapshot = useFormSnapshot(form);
       return react.createElement('div', { className: 'modelSelectorSection' },
         react.createElement('h2', { className: 'modelSelectorHeading' }, t('settings.title')),
-        react.createElement(ShortcutSettingsForm, { t, form, snapshot }),
+        react.createElement(ShortcutSettingsForm, { t, form, snapshot, modelCatalog }),
       );
     }
 
@@ -693,7 +912,7 @@ window.__ModuleLoader__.load({
      * Plugin entry
      * ------------------------------------------------------------------ */
 
-    const inject = ['slots', 'locale', 'configForms', 'modelDirectories'];
+    const inject = ['slots', 'locale', 'remote', 'remote.session', 'configForms', 'modelDirectories'];
 
     /**
      * Mount the settings page and the composer controls.
@@ -710,9 +929,24 @@ window.__ModuleLoader__.load({
         document.head.append(tag);
         return () => tag.remove();
       }, 'model-selector: style');
-      ctx.inject(['slots', 'configForms', 'modelDirectories'], (scope) => {
+      ctx.inject(['slots', 'remote', 'remote.session', 'configForms', 'modelDirectories'], (scope) => {
         const form = scope.configForms.get(CONFIG_NAMESPACE);
         const directories = scope.modelDirectories;
+
+        // The settings page offers the configured models and nothing else, and it
+        // must offer them without a session: the catalog behind `remote.session`
+        // is the Host generation's one list, shared by every session, which is
+        // exactly the list the composer menu shows. Every Host event that can
+        // move that list re-reads it, so an open page keeps up.
+        const catalog = {
+          load: () => scope.remote.session.modelCatalog(),
+          subscribe: (notify) => {
+            const on = scope.remote.$on;
+            if (typeof on !== 'function') return undefined;
+            const stops = CATALOG_EVENTS.map((event) => on.call(scope.remote, event, notify));
+            return () => { for (const stop of stops) if (typeof stop === 'function') stop(); };
+          },
+        };
 
         // `plugins.item` only lists the official Host-plane plugins, so a profile
         // bundle's own settings belong in the two bundle seats instead: the row's
@@ -723,13 +957,13 @@ window.__ModuleLoader__.load({
           name: 'plugins.row.config',
           key: `${PLUGIN_ID}#${CONFIG_NAMESPACE}`,
           locale: NS,
-          inject: () => ({ settingsForm: form }),
+          inject: () => ({ settingsForm: form, modelCatalog: catalog }),
         }, SettingsPage)), 'model-selector: row configuration page');
         scope.effect(() => scope.slots.inject('plugins.bundle.config', () => scope.slots.register({
           name: 'plugins.bundle.config',
           key: PLUGIN_ID,
           locale: NS,
-          inject: () => ({ settingsForm: form }),
+          inject: () => ({ settingsForm: form, modelCatalog: catalog }),
         }, SettingsPage)), 'model-selector: bundle configuration page');
 
         // The settings panel's own page, for the same shortcut list. The panel
@@ -742,7 +976,7 @@ window.__ModuleLoader__.load({
           order: 12,
           label: () => t('settings.title'),
           locale: NS,
-          inject: () => ({ settingsForm: form }),
+          inject: () => ({ settingsForm: form, modelCatalog: catalog }),
         }, SettingsSection)), 'model-selector: settings page');
 
         // The composer's own model seat, where the shipped model trigger sits:
@@ -785,6 +1019,7 @@ window.__ModuleLoader__.load({
       activeShortcut,
       reasoningOptions,
       shortcutRows,
+      shortcutChoices,
       zh,
       en,
     };

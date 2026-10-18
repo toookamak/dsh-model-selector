@@ -1,12 +1,12 @@
 {
   "meta": {
     "title": "Model selector",
-    "description": "Reasoning effort, shortcut models, and the full model menu below the composer."
+    "description": "Reasoning effort, shortcut models, and the full model menu in the composer’s right corner."
   },
   "settings": {
     "title": "Model selector",
-    "summary": "Configure the shortcut model buttons below the composer (up to three).",
-    "intro": "Shortcuts appear below the composer in this order; an empty alias falls back to the model name.",
+    "summary": "Configure the shortcut model buttons in the composer’s right corner (up to three).",
+    "intro": "Shortcuts sit in the composer’s right corner beside the model button, in this order; an empty alias falls back to the model name.",
     "empty": "No shortcut models configured yet.",
     "add": "Add shortcut",
     "remove": "Remove",
@@ -14,11 +14,18 @@
     "saving": "Saving…",
     "saved": "Saved.",
     "discard": "Discard changes",
-    "readOnly": "This deployment’s settings are read-only."
+    "readOnly": "This deployment’s settings are read-only.",
+    "pickProvider": "Choose a provider…",
+    "pickModel": "Choose a model…",
+    "unavailable": " (unavailable)",
+    "catalogLoading": "Reading the configured models…",
+    "catalogFailed": "Could not read the configured models: ",
+    "catalogRetry": "Retry",
+    "catalogEmpty": "No models are configured yet; add a provider under Models first."
   },
   "field": {
-    "provider": "Provider ID",
-    "model": "Model ID",
+    "provider": "Provider",
+    "model": "Model",
     "alias": "Display name (optional)"
   },
   "control": {

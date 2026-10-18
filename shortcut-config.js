@@ -39,6 +39,61 @@ export function visibleShortcuts(shortcuts, groups) {
 }
 
 /**
+ * Build the two pickers' choices for one shortcut row from the live catalog.
+ *
+ * The settings page never asks for a provider or a model ID by hand: the
+ * choices come from the same catalog the composer menu reads, so a saved
+ * shortcut always has a button to show. Models another row already holds are
+ * left out of this row's choices, which is what keeps the duplicate rule from
+ * only firing on Save; the row's own pair survives even when the catalog no
+ * longer advertises it, so an unavailable shortcut can still be read and
+ * removed instead of being silently rewritten.
+ *
+ * @param groups - the catalog's provider groups, in catalog order.
+ * @param rows - every draft row, in page order.
+ * @param index - the row these choices are for.
+ * @returns the offered providers (each with its selectable models), the row's
+ *   normalized provider, and that provider's models.
+ */
+export function shortcutChoices(groups, rows, index) {
+  const row = (rows ?? [])[index] ?? {};
+  const provider = typeof row.provider === 'string' ? row.provider.trim() : '';
+  const model = typeof row.model === 'string' ? row.model.trim() : '';
+  const taken = new Set();
+  (rows ?? []).forEach((item, at) => {
+    if (at === index) return;
+    const held = typeof item?.provider === 'string' ? item.provider.trim() : '';
+    const heldModel = typeof item?.model === 'string' ? item.model.trim() : '';
+    if (held && heldModel) taken.add(modelKey(held, heldModel));
+  });
+  const providers = [];
+  for (const group of groups ?? []) {
+    const own = group.id === provider;
+    const models = [];
+    for (const entry of group.models ?? []) {
+      if (taken.has(modelKey(group.id, entry.id))) continue;
+      models.push({ id: entry.id, name: entry.name ?? entry.id, unavailable: false });
+    }
+    // A provider whose every model is already held offers nothing; only the row
+    // that points at it keeps it, so its configured value stays readable.
+    if (models.length === 0 && !own) continue;
+    if (own && model && !models.some((entry) => entry.id === model)) {
+      models.unshift({ id: model, name: model, unavailable: true });
+    }
+    providers.push({ id: group.id, name: group.name ?? group.id, models });
+  }
+  if (provider && !providers.some((entry) => entry.id === provider)) {
+    providers.unshift({
+      id: provider,
+      name: provider,
+      models: model ? [{ id: model, name: model, unavailable: true }] : [],
+    });
+  }
+  const selected = providers.find((entry) => entry.id === provider);
+  return { providers, provider, models: selected === undefined ? [] : selected.models };
+}
+
+/**
  * Find the configured shortcut that the current selection is showing.
  *
  * Only the provider/model pair decides the match: the reasoning effort is an

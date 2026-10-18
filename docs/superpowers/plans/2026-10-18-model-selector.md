@@ -447,3 +447,20 @@ git commit -m "test: verify model selector in dsh"
 - 新增 `settings.section` 注册（`id: model-selector`、`order: 12`、`label: () => t('settings.title')`），设置面板出现「模型选择器」一级页面，内容与 Plugins 页共用同一个 `configForms` 表单组件，不存在第二份状态。
 - 席位契约：`conversation.input.model` 的 owner props 为 `{ locked }`，`locked === true` 时控制行整体禁用（原先只考虑目录自身的 `selecting` 状态）。
 - 测试同步：`tests/client-bundle.test.js` 的席位清单改为 `plugins.row.config` / `plugins.bundle.config` / `settings.section` / `conversation.input.model`，并新增「接管模型席位与设置页面」的结构断言。
+
+---
+
+## 修订记录：设置页的快捷模型改为从已配置模型中选择（2026-10-18，v1.0.2）
+
+**问题（用户反馈）：** 添加快捷模型要手填 Provider ID 与 Model ID，既容易填错，也不符合「从已经配置好的模型里面选」的预期。
+
+**修订决策：**
+
+- 设置页的每一行改为两级下拉：先「服务商」、再「模型」。选项来自宿主已配置的模型目录（client 侧 `remote.session.modelCatalog()`，与 composer 模型菜单同一份数据），因此保存下来的 pair 一定有按钮可渲染。
+- 重复规则从「保存时校验」前移到「选择时不可选」：已被其它行占用的 pair 不再出现在本行选项里；本行自己的 pair 即使目录已不再提供也保留并标注「（不可用）」，可读取、可删除，不会被静默改写。
+- 目录状态有三种提示：加载中、加载失败（带「重试」）、目录为空（提示先去「模型」设置添加服务商）。目录随 `llm/adapters-updated`、`settings/document-updated`、`credentials/record-updated`、`credentials/reference-updated` 四个宿主事件自动重读。
+- 「添加快捷模型」以目录中第一个仍有空位的服务商及其第一个可用模型预填，不再产生需要两步才能补齐的空行。
+- 文案同步：快捷按钮的位置描述由「输入框下方」改为「输入框右下角模型按钮旁」；字段标签由 Provider ID / Model ID 改为「服务商 / 模型」。
+- 依赖与实现：client 增加 `remote`、`remote.session` 注入，`package.json` 的 `dsh.client.inject` 增加 `@deepseek-ai/dsh-api-remotes`；纯规则 `shortcutChoices(groups, rows, index)` 同时落在 `shortcut-config.js` 与 client bundle，测试比对两份实现。
+- 测试同步：`tests/client-bundle.test.js` 新增可交互的 React stub（`statefulReact`），真实渲染设置页并断言两处下拉的选项、退役 pair 的「（不可用）」标记，以及「添加快捷模型」预填的 pair；镜像与清单断言同步更新（33 项测试通过）。
+- 版本：1.0.1 → 1.0.2。

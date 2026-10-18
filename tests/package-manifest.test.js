@@ -12,6 +12,8 @@ const PROVIDERS = [
   '@deepseek-ai/dsh-client-ui-plugin-manager',
   '@deepseek-ai/dsh-client-ui-conversation',
   '@deepseek-ai/dsh-client-ui-model-selection',
+  // The settings page reads the configured-model catalog over the Host RPC.
+  '@deepseek-ai/dsh-api-remotes',
 ];
 
 /** Every file the bundle needs at run time, as the manifest must ship it. */
