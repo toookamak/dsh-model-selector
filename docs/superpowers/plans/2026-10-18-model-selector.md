@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 交付一个可安装的 DSH Web 插件，在 composer 卡片下方显示推理等级、最多三个快捷模型和完整模型选择器，并在 Plugins 设置页配置快捷模型。
+**Goal:** 交付一个可安装的 DSH Web 插件，在对话框右下角（原生模型按钮所在位置、提交按钮左侧）显示推理等级、最多三个快捷模型和完整模型选择器，并在 Plugins 页与「设置」面板里配置快捷模型。
 
-**Architecture:** 以独立 Cordis bundle 扩展 DSH，不修改核心模型逻辑。Host `Config` 和 `configForms` 保存快捷模型；Client 复用 `@deepseek-ai/dsh-client-ui-model-selection` 的会话级 `ModelDirectory`，以 `conversation.composer.dock` 承载控制行，并用高优先级空组件隐藏 composer 原生单模型插槽，避免重复菜单。设置页挂载到 `plugins.item`，仅在 Host 提供 `model-selector` 配置时显示。
+**Architecture:** 以独立 Cordis bundle 扩展 DSH，不修改核心模型逻辑。Host `Config` 和 `configForms` 保存快捷模型；Client 复用 `@deepseek-ai/dsh-client-ui-model-selection` 的会话级 `ModelDirectory`，以低于宿主注册值的优先级接管 `conversation.input.model` 单插槽、在其中渲染整个控制行，并在 `settings.section` 注册一个设置面板一级页面；Plugins 页继续通过 `plugins.row.config` 与 `plugins.bundle.config` 提供同一份配置表单。
 
 **Tech Stack:** ESM JavaScript、DSH Cordis bundle / Client module loader、React 18（由宿主提供）、`@deepseek-ai/schemastery` `~3.18.5`、Node 内置 `node:test`；不引入运行时 UI 组件库或构建依赖。
 
@@ -432,3 +432,18 @@ git commit -m "test: verify model selector in dsh"
 - 推理下拉：展开后列出该模型可用的推理等级（当前模型只提供 provider 默认值「默认」）。
 
 修改 Host 半后让改动生效：用 `plugin_manager` 把该 bundle 先禁用再启用（`set_bundle enabled=false` → `true`）；**不要用 `remove_bundle`**——本地 link 安装时它会清空被链接的源目录。修改 client 半刷新页面即可。
+
+---
+
+## 修订记录：控制行落位与设置面板入口（2026-10-18）
+
+上文的验收记录（composer 卡片下方、Plugins 页单入口）已被本节取代，其余结论仍然有效。
+
+**问题（用户反馈）：**① 控制行挂在 `conversation.composer.dock`，实际渲染在 composer 卡片下方与「上下文用量 / 运行统计」同一行，而不是原生模型按钮所在的右下角；② 设置入口只有 Plugins 页，设置面板里没有该插件自己的页面。
+
+**修订决策：**
+
+- 取消 `conversation.composer.dock` 注册与 `ModelSelectShadow` 空组件，改为**直接接管 `conversation.input.model`**（单插槽，priority `-1000` < 宿主的 `0`），在其中渲染完整控制行：`@deepseek-ai/dsh-client-ui-composer` 的 `InputBar` 把该席位放在 `.standardControls` 内、提交按钮之前，即原模型按钮的位置。行内顺序不变：推理等级 → 快捷模型 → 当前模型菜单按钮（最右，紧邻提交按钮）。
+- 新增 `settings.section` 注册（`id: model-selector`、`order: 12`、`label: () => t('settings.title')`），设置面板出现「模型选择器」一级页面，内容与 Plugins 页共用同一个 `configForms` 表单组件，不存在第二份状态。
+- 席位契约：`conversation.input.model` 的 owner props 为 `{ locked }`，`locked === true` 时控制行整体禁用（原先只考虑目录自身的 `selecting` 状态）。
+- 测试同步：`tests/client-bundle.test.js` 的席位清单改为 `plugins.row.config` / `plugins.bundle.config` / `settings.section` / `conversation.input.model`，并新增「接管模型席位与设置页面」的结构断言。

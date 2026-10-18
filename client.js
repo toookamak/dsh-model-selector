@@ -249,6 +249,8 @@ window.__ModuleLoader__.load({
      * ------------------------------------------------------------------ */
 
     const CSS = `
+.modelSelectorSection{display:flex;flex-direction:column;gap:12px;max-width:760px;color:var(--dsw-alias-label-primary)}
+.modelSelectorHeading{margin:0;font-size:15px;font-weight:600;line-height:22px}
 .modelSelectorPage{display:flex;flex-direction:column;gap:12px;max-width:760px;color:var(--dsw-alias-label-primary);font-size:13px;line-height:20px}
 .modelSelectorIntro,.modelSelectorEmpty,.modelSelectorNotice{margin:0}
 .modelSelectorIntro{color:var(--dsw-alias-label-secondary)}
@@ -265,7 +267,7 @@ window.__ModuleLoader__.load({
 .modelSelectorButton:disabled{opacity:.5;cursor:default}
 .modelSelectorPrimary{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary)}
 .modelSelectorError{color:var(--dsw-alias-state-error-primary)}
-.modelSelectorControls{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12px}
+.modelSelectorControls{display:flex;flex-wrap:wrap;gap:6px;align-items:center;min-width:0;font-size:12px}
 .modelSelectorEffort{display:flex;align-items:center;gap:4px;color:var(--dsw-alias-label-secondary)}
 .modelSelectorSelect{font:inherit;font-size:12px;padding:3px 6px;border:1px solid var(--dsw-alias-border-l1);border-radius:6px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}
 .modelSelectorSelect:disabled{opacity:.5}
@@ -397,6 +399,18 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * Follow one configuration form's accepted snapshots.
+     *
+     * @param form - the Host-backed configuration form.
+     * @returns the latest snapshot.
+     */
+    function useFormSnapshot(form) {
+      const subscribe = react.useCallback((notify) => form.subscribe(notify), [form]);
+      const getSnapshot = react.useCallback(() => form.getSnapshot(), [form]);
+      return react.useSyncExternalStore(subscribe, getSnapshot);
+    }
+
+    /**
      * The Plugins page entry: a one-liner in the card list, the form once opened.
      *
      * @param props - the asked-for view, the slot's locale reader, and the form.
@@ -405,11 +419,29 @@ window.__ModuleLoader__.load({
     function SettingsPage(props) {
       const t = props.t;
       const form = props.settingsForm;
-      const subscribe = react.useCallback((notify) => form.subscribe(notify), [form]);
-      const getSnapshot = react.useCallback(() => form.getSnapshot(), [form]);
-      const snapshot = react.useSyncExternalStore(subscribe, getSnapshot);
+      const snapshot = useFormSnapshot(form);
       if (props.view === 'summary') return t('settings.summary');
       return react.createElement(ShortcutSettingsForm, { t, form, snapshot });
+    }
+
+    /**
+     * The Settings panel's own page for the same configuration.
+     *
+     * The panel renders the section and no heading of its own, so this page
+     * supplies the title and then the very form the Plugins page shows: one
+     * configuration, two doors, no second copy of the state.
+     *
+     * @param props - the slot's locale reader and the shortcut configuration form.
+     * @returns the settings section page.
+     */
+    function SettingsSection(props) {
+      const t = props.t;
+      const form = props.settingsForm;
+      const snapshot = useFormSnapshot(form);
+      return react.createElement('div', { className: 'modelSelectorSection' },
+        react.createElement('h2', { className: 'modelSelectorHeading' }, t('settings.title')),
+        react.createElement(ShortcutSettingsForm, { t, form, snapshot }),
+      );
     }
 
     /* ------------------------------------------------------------------ *
@@ -526,17 +558,19 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * The composer row: reasoning effort, the configured shortcuts, the menu.
+     * The composer's model seat: reasoning effort, the shortcuts, the menu.
      *
-     * Everything rendered here is read back from the shared directory store, so a
-     * rejected switch shows the failure instead of a selection that never landed.
+     * The seat is the one the shipped model trigger occupied, so the row sits in
+     * the composer's right corner beside submit. Everything rendered here is read
+     * back from the shared directory store, so a rejected switch shows the
+     * failure instead of a selection that never landed.
      *
      * @param props - the locale reader, the directory store and its operations,
-     *   and the shortcut configuration form.
+     *   the shortcut configuration form, and the seat's own lock state.
      * @returns the control row.
      */
     function ControlRow(props) {
-      const { t, directory, load, select, settingsForm } = props;
+      const { t, directory, load, select, settingsForm, locked } = props;
       const subscribe = react.useCallback((notify) => directory.subscribe(notify), [directory]);
       const getSnapshot = react.useCallback(() => directory.getSnapshot(), [directory]);
       const state = react.useSyncExternalStore(subscribe, getSnapshot);
@@ -570,6 +604,10 @@ window.__ModuleLoader__.load({
       const options = reasoningOptions(currentModel);
       const effort = state.current?.reasoningEffort ?? currentModel?.reasoning?.defaultEffort;
       const busy = state.status === 'selecting';
+      // A locked composer refuses every interaction of its own, so the seat it
+      // hosts must refuse with it rather than stay a live control in a frozen
+      // card.
+      const blocked = busy || locked === true;
       const loading = state.status === 'loading' || (state.status === 'idle' && groups.length === 0);
       const active = activeShortcut(shortcuts, state.current);
       const activeKey = active === undefined ? undefined : modelKey(active.provider, active.model);
@@ -603,7 +641,7 @@ window.__ModuleLoader__.load({
           t,
           options,
           value: effort,
-          disabled: busy,
+          disabled: blocked,
           onChange: (id) => change({
             provider: state.current.provider,
             model: state.current.model,
@@ -614,7 +652,7 @@ window.__ModuleLoader__.load({
           type: 'button',
           key: item.key,
           className: item.key === activeKey ? 'modelSelectorButton modelSelectorShortcutActive' : 'modelSelectorButton',
-          disabled: busy,
+          disabled: blocked,
           title: item.modelName,
           onClick: () => change({ provider: item.provider, model: item.model }),
         }, item.label)),
@@ -622,7 +660,7 @@ window.__ModuleLoader__.load({
           react.createElement('button', {
             type: 'button',
             className: 'modelSelectorButton',
-            disabled: busy,
+            disabled: blocked,
             'aria-haspopup': 'dialog',
             'aria-expanded': open ? 'true' : 'false',
             onClick: () => {
@@ -649,24 +687,6 @@ window.__ModuleLoader__.load({
           ? null
           : react.createElement('p', { className: 'modelSelectorNotice modelSelectorError', role: 'status' }, notice),
       );
-    }
-
-    /**
-     * The empty stand-in that takes over the shipped model seat.
-     *
-     * This plugin's composer row owns the model menu now, so the seat inside the
-     * composer renders nothing. A single slot renders the lowest priority, and
-     * the shipped `ModelSelect` registers without one (priority 0), so this empty
-     * registration sits far below it. Evidence from the live slot tree on this
-     * machine: the occupants of `conversation.input.model` were `-10` (active)
-     * and `0` (inactive), which is why a lower value wins. Verify after install
-     * that this registration is the active one; if that tree ever reports the
-     * opposite, raise this value above the shipped registration instead.
-     *
-     * @returns nothing at all.
-     */
-    function ModelSelectShadow() {
-      return null;
     }
 
     /* ------------------------------------------------------------------ *
@@ -712,11 +732,32 @@ window.__ModuleLoader__.load({
           inject: () => ({ settingsForm: form }),
         }, SettingsPage)), 'model-selector: bundle configuration page');
 
-        // The composer row, bound to one session's shared model directory.
-        scope.effect(() => scope.slots.inject('conversation.composer.dock', () => scope.slots.register({
-          name: 'conversation.composer.dock',
-          id: 'model-selector-controls',
-          order: 5,
+        // The settings panel's own page, for the same shortcut list. The panel
+        // projects one nav row per registration and renders the chosen section
+        // inside its content column, so this page reads as a top-level settings
+        // entry ("Settings → the plugin's title") instead of a nested card.
+        scope.effect(() => scope.slots.inject('settings.section', () => scope.slots.register({
+          name: 'settings.section',
+          id: CONFIG_NAMESPACE,
+          order: 12,
+          label: () => t('settings.title'),
+          locale: NS,
+          inject: () => ({ settingsForm: form }),
+        }, SettingsSection)), 'model-selector: settings page');
+
+        // The composer's own model seat, where the shipped model trigger sits:
+        // the right corner of the control row, immediately left of submit. One
+        // registration per session, bound to that session's shared directory.
+        // A single slot renders its lowest priority, and the shipped
+        // `ModelSelect` registers without one (priority 0), so this row takes
+        // the seat. Evidence from the live slot tree on this machine: the
+        // occupants of `conversation.input.model` were `-10` (active) and `0`
+        // (inactive), which is why a lower value wins. Verify after install that
+        // this registration is the active one; if that tree ever reports the
+        // opposite, raise this value above the shipped registration instead.
+        scope.effect(() => scope.slots.inject('conversation.input.model', () => scope.slots.register({
+          name: 'conversation.input.model',
+          priority: -1000,
           locale: NS,
           inject: (sessionId) => {
             const directory = directories.directoryFor(sessionId);
@@ -730,14 +771,7 @@ window.__ModuleLoader__.load({
               settingsForm: form,
             };
           },
-        }, ControlRow)), 'model-selector: composer controls');
-
-        // Take over the shipped seat, so the model menu exists exactly once.
-        scope.effect(() => scope.slots.inject('conversation.input.model', () => scope.slots.register({
-          name: 'conversation.input.model',
-          priority: -1000,
-          locale: NS,
-        }, ModelSelectShadow)), 'model-selector: empty model seat');
+        }, ControlRow)), 'model-selector: composer model seat');
       });
     }
 

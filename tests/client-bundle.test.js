@@ -125,7 +125,16 @@ test('mirrors the save flow and its canonical failures', async () => {
   }
 });
 
-test('registers its settings form in the seats the Plugins page renders', () => {
+/**
+ * Mount the bundle against a recording context.
+ *
+ * The stubs are the smallest surface `apply` touches: one configuration form,
+ * one shared model directory, a slot registry that records every claim, and the
+ * `document` the style tag needs.
+ *
+ * @returns the recorded registrations.
+ */
+function mountBundle() {
   const bundle = loadBundle();
   const registered = [];
   const fakeForm = {
@@ -158,7 +167,11 @@ test('registers its settings form in the seats the Plugins page renders', () => 
     },
     configForms: { get: () => fakeForm },
     modelDirectories: {
-      directoryFor: () => ({ store: {}, load: async () => {}, select: async () => ({ ok: true }) }),
+      directoryFor: () => ({
+        store: { subscribe: () => () => {}, getSnapshot: () => ({ status: 'idle', groups: [] }) },
+        load: async () => {},
+        select: async () => ({ ok: true }),
+      }),
     },
   };
   const documentStub = {
@@ -173,18 +186,49 @@ test('registers its settings form in the seats the Plugins page renders', () => 
     if (original === undefined) delete globalThis.document;
     else globalThis.document = original;
   }
+  return { registered };
+}
+
+test('registers its settings form in the seats the Plugins page renders', () => {
+  const { registered } = mountBundle();
   assert.deepEqual(
     registered.map((entry) => `${entry.spec.name}\t${entry.spec.key ?? entry.spec.id ?? ''}`),
     [
       'plugins.row.config\t@local/dsh-model-selector#model-selector',
       'plugins.bundle.config\t@local/dsh-model-selector',
-      'conversation.composer.dock\tmodel-selector-controls',
+      'settings.section\tmodel-selector',
       'conversation.input.model\t',
     ],
   );
   // `plugins.item` lists official Host-plane plugins only, so a profile bundle
   // must never claim it: nothing would render there.
   assert.ok(!registered.some((entry) => entry.spec.name === 'plugins.item'));
+});
+
+test('takes the composer model seat and its own settings page', () => {
+  const { registered } = mountBundle();
+  const seat = registered.find((entry) => entry.spec.name === 'conversation.input.model');
+  // A single seat renders its lowest priority, and the shipped model trigger
+  // registers without one (priority 0), so the row has to sit below it.
+  assert.equal(seat.spec.priority, -1000);
+  assert.equal(seat.component.name, 'ControlRow');
+  const face = seat.spec.inject('session-1');
+  assert.equal(typeof face.directory.subscribe, 'function');
+  assert.equal(typeof face.directory.getSnapshot, 'function');
+  assert.equal(typeof face.select, 'function');
+  assert.equal(typeof face.settingsForm.set, 'function');
+  face.load();
+
+  const section = registered.find((entry) => entry.spec.name === 'settings.section');
+  assert.equal(section.spec.id, 'model-selector');
+  assert.equal(section.spec.order, 12);
+  assert.equal(section.spec.label(), 'settings.title');
+  assert.equal(section.component.name, 'SettingsSection');
+  assert.deepEqual(Object.keys(section.spec.inject()), ['settingsForm']);
+
+  // The row no longer hangs below the composer on the dock line: the buttons
+  // belong beside submit, inside the seat itself.
+  assert.ok(!registered.some((entry) => entry.spec.name === 'conversation.composer.dock'));
 });
 
 test('keeps both locale files and the bundle dictionaries in step', () => {
