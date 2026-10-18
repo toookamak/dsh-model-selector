@@ -93,9 +93,10 @@ test('mirrors the host-side shortcut rules exactly', () => {
 
 test('mirrors the save flow and its canonical failures', async () => {
   const internals = loadBundle().__internals;
-  const form = (writable, accepted) => ({
+  const form = (writable, accepted, mirrored) => ({
     writable,
     calls: [],
+    ...(mirrored ? { getSnapshot: () => ({ revision: 1, writable }) } : {}),
     async set(field, value) {
       this.calls.push([field, value]);
       return accepted;
@@ -107,9 +108,14 @@ test('mirrors the save flow and its canonical failures', async () => {
     Array.from({ length: 4 }, (_, index) => ({ provider: 'provider-a', model: String(index) })),
   ];
   for (const draft of drafts) {
-    for (const [writable, accepted] of [[true, true], [true, false], [false, true]]) {
-      const mirrored = form(writable, accepted);
-      const host = form(writable, accepted);
+    // `mirrored` covers the live shape (writability on the snapshot) next to the
+    // bare flag a stand-in may carry.
+    for (const [writable, accepted, snapshot] of [
+      [true, true, false], [true, false, false], [false, true, false],
+      [true, true, true], [true, false, true], [false, true, true],
+    ]) {
+      const mirrored = form(writable, accepted, snapshot);
+      const host = form(writable, accepted, snapshot);
       assert.deepEqual(
         await internals.persistShortcuts(mirrored, draft),
         await persistShortcuts(host, draft),

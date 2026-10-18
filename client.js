@@ -45,10 +45,25 @@ window.__ModuleLoader__.load({
       return undefined;
     }
 
+    // Writability lives on the snapshot the Host mirrors, not on the form
+    // object: the live `configForms` form offers only getSnapshot/subscribe/
+    // set/unset/mutate. A bare `writable` flag still counts, so a lightweight
+    // stand-in keeps working.
+    function formWritable(form) {
+      let snapshot;
+      try {
+        snapshot = typeof form?.getSnapshot === 'function' ? form.getSnapshot() : undefined;
+      } catch {
+        return false;
+      }
+      if (snapshot !== undefined && typeof snapshot.writable === 'boolean') return snapshot.writable;
+      return form?.writable === true;
+    }
+
     async function persistShortcuts(form, draft) {
       const error = validateShortcuts(draft);
       if (error) return { ok: false, error };
-      if (!form.writable) return { ok: false, error: 'Configuration is read-only.' };
+      if (!formWritable(form)) return { ok: false, error: 'Configuration is read-only.' };
       const saved = await form.set('shortcuts', draft);
       return saved
         ? { ok: true }

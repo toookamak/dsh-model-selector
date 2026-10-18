@@ -90,6 +90,49 @@ test('reports a read-only configuration without writing', async () => {
   assert.deepEqual(form.calls, []);
 });
 
+/** The live form shape: the Host mirrors writability onto the snapshot. */
+function snapshotForm({ writable, accepted = true } = {}) {
+  const calls = [];
+  return {
+    calls,
+    subscribe: () => () => {},
+    getSnapshot: () => ({ status: 'ready', revision: 1, writable }),
+    async set(field, value) {
+      calls.push([field, value]);
+      return accepted;
+    },
+  };
+}
+
+test('reads writability from the snapshot the Host-backed form mirrors', async () => {
+  const open = snapshotForm({ writable: true });
+  assert.deepEqual(await persistShortcuts(open, [{ provider: 'p', model: 'm' }]), { ok: true });
+  assert.equal(open.calls.length, 1);
+
+  const readOnly = snapshotForm({ writable: false });
+  const refused = await persistShortcuts(readOnly, [{ provider: 'p', model: 'm' }]);
+  assert.equal(refused.ok, false);
+  assert.match(refused.error, /read-only/i);
+  assert.deepEqual(readOnly.calls, []);
+});
+
+test('never guesses writability from a silent or failing snapshot', async () => {
+  const silent = { getSnapshot: () => ({ revision: 2 }), set: async () => true };
+  const silentResult = await persistShortcuts(silent, [{ provider: 'p', model: 'm' }]);
+  assert.equal(silentResult.ok, false);
+  assert.match(silentResult.error, /read-only/i);
+
+  let calls = 0;
+  const throwing = {
+    getSnapshot: () => { throw new Error('mirror is gone'); },
+    set: async () => { calls += 1; return true; },
+  };
+  const thrown = await persistShortcuts(throwing, [{ provider: 'p', model: 'm' }]);
+  assert.equal(thrown.ok, false);
+  assert.match(thrown.error, /read-only/i);
+  assert.equal(calls, 0);
+});
+
 test('reports a host rejection and leaves the draft untouched for editing', async () => {
   const form = fakeForm({ accepted: false });
   const draft = [{ provider: 'p', model: 'm', alias: 'Mine' }];

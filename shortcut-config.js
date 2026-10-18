@@ -74,6 +74,29 @@ export function reasoningOptions(model) {
 }
 
 /**
+ * Read whether the configuration form accepts writes right now.
+ *
+ * The live `configForms` form carries writability on its snapshot
+ * (`{ status, value, base, user, revision, writable }`); the form object itself
+ * exposes only `getSnapshot`, `subscribe`, `set`, `unset`, and `mutate`. A
+ * lightweight stand-in may still hand the flag over directly, so both shapes
+ * are accepted and neither is guessed at when the snapshot is silent.
+ *
+ * @param form - the configuration form, or a test stand-in for one.
+ * @returns whether a write would be submitted to the Host.
+ */
+function formWritable(form) {
+  let snapshot;
+  try {
+    snapshot = typeof form?.getSnapshot === 'function' ? form.getSnapshot() : undefined;
+  } catch {
+    return false;
+  }
+  if (snapshot !== undefined && typeof snapshot.writable === 'boolean') return snapshot.writable;
+  return form?.writable === true;
+}
+
+/**
  * Save one shortcut draft through the Host-backed configuration form.
  *
  * The draft is validated with the same rules the settings page enforces, and it
@@ -87,7 +110,7 @@ export function reasoningOptions(model) {
 export async function persistShortcuts(form, draft) {
   const error = validateShortcuts(draft);
   if (error) return { ok: false, error };
-  if (!form.writable) return { ok: false, error: 'Configuration is read-only.' };
+  if (!formWritable(form)) return { ok: false, error: 'Configuration is read-only.' };
   const saved = await form.set('shortcuts', draft);
   return saved
     ? { ok: true }
