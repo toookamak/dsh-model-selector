@@ -1,0 +1,4 @@
+- insert:
+    - id: model-selector
+      name: '@local/dsh-model-selector'
+      config: {}
