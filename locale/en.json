@@ -1,0 +1,33 @@
+{
+  "meta": {
+    "title": "Model selector",
+    "description": "Reasoning effort, shortcut models, and the full model menu below the composer."
+  },
+  "settings": {
+    "title": "Model selector",
+    "summary": "Configure the shortcut model buttons below the composer (up to three).",
+    "intro": "Shortcuts appear below the composer in this order; an empty alias falls back to the model name.",
+    "empty": "No shortcut models configured yet.",
+    "add": "Add shortcut",
+    "remove": "Remove",
+    "save": "Save",
+    "saving": "Saving…",
+    "saved": "Saved.",
+    "discard": "Discard changes",
+    "readOnly": "This deployment’s settings are read-only."
+  },
+  "field": {
+    "provider": "Provider ID",
+    "model": "Model ID",
+    "alias": "Display name (optional)"
+  },
+  "error": {
+    "array": "The configuration has the wrong shape.",
+    "limit": "At most three shortcut models are allowed.",
+    "provider": "A provider ID is required.",
+    "model": "A model ID is required.",
+    "duplicate": "The same model cannot be configured twice.",
+    "readOnly": "This deployment’s settings are read-only.",
+    "rejected": "This deployment did not accept these values; they are kept for you to edit."
+  }
+}

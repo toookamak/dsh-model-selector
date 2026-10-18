@@ -37,3 +37,24 @@ export function visibleShortcuts(shortcuts, groups) {
     }] : [];
   });
 }
+
+/**
+ * Save one shortcut draft through the Host-backed configuration form.
+ *
+ * The draft is validated with the same rules the settings page enforces, and it
+ * is never written before the Host answers: a rejected write keeps the draft in
+ * the caller's hands so the user can correct it.
+ *
+ * @param form - the `model-selector` configuration form.
+ * @param draft - the shortcut rows the user edited.
+ * @returns whether the Host accepted the draft, or the reason it did not.
+ */
+export async function persistShortcuts(form, draft) {
+  const error = validateShortcuts(draft);
+  if (error) return { ok: false, error };
+  if (!form.writable) return { ok: false, error: 'Configuration is read-only.' };
+  const saved = await form.set('shortcuts', draft);
+  return saved
+    ? { ok: true }
+    : { ok: false, error: 'The host rejected the configuration.' };
+}

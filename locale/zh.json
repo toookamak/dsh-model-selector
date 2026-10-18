@@ -1,0 +1,33 @@
+{
+  "meta": {
+    "title": "模型选择器",
+    "description": "在对话输入框下方提供推理等级、快捷模型与完整模型菜单。"
+  },
+  "settings": {
+    "title": "模型选择器",
+    "summary": "配置对话输入框下方的快捷模型按钮（最多三个）。",
+    "intro": "快捷模型按此处顺序显示在输入框下方；别名为空时使用模型原名。",
+    "empty": "尚未配置快捷模型。",
+    "add": "添加快捷模型",
+    "remove": "删除",
+    "save": "保存",
+    "saving": "保存中…",
+    "saved": "已保存。",
+    "discard": "撤销修改",
+    "readOnly": "本部署的设置为只读。"
+  },
+  "field": {
+    "provider": "Provider ID",
+    "model": "Model ID",
+    "alias": "显示名称（可选）"
+  },
+  "error": {
+    "array": "配置格式不正确。",
+    "limit": "最多只能配置三个快捷模型。",
+    "provider": "请填写 Provider ID。",
+    "model": "请填写 Model ID。",
+    "duplicate": "同一个模型不能重复配置。",
+    "readOnly": "本部署的设置为只读。",
+    "rejected": "本部署没有接受这些值，已保留供你修改。"
+  }
+}
