@@ -7,7 +7,11 @@ const Shortcut = z.object({
 });
 
 export const Config = z.object({
-  shortcuts: z.array(Shortcut).max(3).default([]),
+  // Volatile makes the field editable from the settings form: the settings
+  // service only exposes fields beneath a declared volatile node and refuses
+  // every other write path (`volatileForm`/`isVolatilePath` in
+  // @deepseek-ai/dsh-settings).
+  shortcuts: z.array(Shortcut).max(3).default([]).volatile(),
 });
 
 export function apply(ctx) {
