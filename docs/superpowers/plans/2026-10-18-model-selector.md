@@ -412,3 +412,23 @@ git commit -m "test: verify model selector in dsh"
 - 原生模型 slot 接管风险、原目录与选择逻辑复用、窄窗换行：Task 4、6。
 - 插件设置入口、持久化和元数据/图标：Task 2、3、5。
 - 非目标（修改核心逻辑、增加模型/推理服务、每模型保存等级、超过三键）：本计划均不包含。
+
+## 实机验收记录（2026-10-18）
+
+环境：DSH 0.2.1-rc.2，profile `desktop`，插件以 `link:F:\Git\dsh-model-selector` 安装并激活，本机 Node v22.23.1。
+
+验收中发现并修复的三处宿主契约（均已写入代码注释）：
+
+1. **Plugins 页的配置座位**：`plugins.item` 只列官方插件（Host 的 official-items ledger），非官方 bundle 注册它不会渲染任何东西。bundle 自身配置要用 `plugins.bundle.config`（key = 包名），单行配置要用 `plugins.row.config`（key = `<包名>#<行 id>`）。修复提交 `7dfb824`。
+2. **可写性来源**：写入前判断 `form.writable` 恒为 undefined，导致误报“只读”；可写性在快照 `form.getSnapshot().writable`。修复提交 `7f033fd`。
+3. **可编辑字段必须声明 volatile**：`@deepseek-ai/dsh-settings` 只为 `.volatile()` 字段生成表单，且只允许写入 volatile 路径（`volatileForm`/`isVolatilePath`），否则 `form.set` 被宿主拒绝。修复提交 `3f926a0`：`index.js` 的 `shortcuts` 加 `.volatile()`，并新增 `tests/config-schema.test.js`。
+
+验收结果：
+
+- 设置入口：插件 → 已安装插件 → 查看 模型选择器 → 表单（添加快捷模型 / 保存 / 撤销修改），保存后页面提示「已保存。」
+- 持久化：`C:\Users\maxxi\.dsh\profiles\desktop\cordis.patch.yml` 的 `- id: model-selector` 行下写入三个 shortcuts：`opencode-go/deepseek-v4.1-flash`（别名 Flash）、`xiuxian/gpt-6-luna`（别名 Luna）、`xiaomimimo/mimo-v2.6-flash`（别名 MiMo）。
+- 快捷栏（对话页输入框下方，自左向右）：推理等级下拉（值「默认」）、Flash、Luna、MiMo、当前模型按钮「DeepSeek V4.1 Flash」。
+- 切换：点击 Luna 后当前模型按钮变为「GPT-6 Luna」，推理等级控件隐藏（该模型无推理等级选项）；点击 Flash 恢复「DeepSeek V4.1 Flash」，推理控件回归。切换失败不会改写显示状态。
+- 推理下拉：展开后列出该模型可用的推理等级（当前模型只提供 provider 默认值「默认」）。
+
+修改 Host 半后让改动生效：用 `plugin_manager` 把该 bundle 先禁用再启用（`set_bundle enabled=false` → `true`）；**不要用 `remove_bundle`**——本地 link 安装时它会清空被链接的源目录。修改 client 半刷新页面即可。
